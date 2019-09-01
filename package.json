@@ -1,6 +1,6 @@
 {
   "type": "module",
-  "name": "rufs-commom-es6",
+  "name": "rufs-base-es6",
   "version": "1.0.0",
   "dependencies": {
     "express": "^4.16.3",
