@@ -28,7 +28,7 @@ class DbClientPostgres {
 		//env var: PGHOST,PGPORT,PGDATABASE,PGUSER,PGPASSWORD
 		this.client = new pg.Client(this.dbConfig);
 		this.sqlTypes        = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint", "smallint", "text", "date", "double precision", "bytea"];
-		this.crudTypes       = ["b"      ,"s"                ,"s"        ,"i"      ,"json" , "n"      , "datetime-local"      ,        "datetime-local"          , "datetime-local"        , "i"     , "i"       , "s"   , "date", "n"               , "s"];
+		this.rufsTypes       = ["b"      ,"s"                ,"s"        ,"i"      ,"json" , "n"      , "datetime-local"      ,        "datetime-local"          , "datetime-local"        , "i"     , "i"       , "s"   , "date", "n"               , "s"];
 	}
 
 	connect() {
@@ -291,7 +291,7 @@ class DbClientPostgres {
 						let field = {}
 						field.primaryKey = undefined;
 						field.unique = undefined;
-						field.type = this.crudTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
+						field.type = this.rufsTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
 						field.notNull = rec.isNullable == "NO"; // true,false
 						field.updatable = rec.isUpdatable == "YES"; // true,false
 						field.scale = rec.numericScale; // > 0 // 3,2,1

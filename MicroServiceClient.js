@@ -14,7 +14,7 @@ class MicroServiceClient extends ServerConnection {
 		if (this.config.protocol == undefined) this.config.protocol = MicroServiceServer.getArg("protocol", "http");
 		if (this.config.host == undefined) this.config.host = MicroServiceServer.getArg("host", "localhost");
 		if (this.config.port == undefined) this.config.port = MicroServiceServer.getArg("port", "3000");
-		if (this.config.appName == undefined) this.config.appName = MicroServiceServer.getArg("appName", "crud");
+		if (this.config.appName == undefined) this.config.appName = MicroServiceServer.getArg("appName", "rufs");
 		if (this.config.userId == undefined) this.config.userId = MicroServiceServer.getArg("user", "guest");
 		if (this.config.password == undefined) this.config.password = MicroServiceServer.getArg("password", "anonymous");
 		this.urlRest = `${this.config.protocol}://${this.config.host}:${this.config.port}/${this.config.appName}`;

@@ -128,7 +128,7 @@ class DataStore {
 	// used by websocket
 	removeInternal(primaryKey) {
         let pos = this.findPos(primaryKey);
-		console.log("CrudService.removeInternal : pos = ", pos, ", data :", this.list[pos]);
+		console.log("DataStore.removeInternal : pos = ", pos, ", data :", this.list[pos]);
         return pos >= 0 ? this.updateList(this.list[pos], pos) : null;
 	}
 	// private, use in save and update methods
@@ -273,7 +273,7 @@ class DataStoreItem extends DataStore {
 
 		if (field.foreignKeysImport != undefined && this.serverConnection.services[field.foreignKeysImport.table] != undefined) {
 			// neste caso, valRef contém o id do registro de referência
-			const service = this.serverConnection.getForeignImportCrudService(field);
+			const service = this.serverConnection.getForeignImportRufsService(field);
 			// dataForeign, fieldNameForeign, fieldName
 			const primaryKey = service.getPrimaryKeyFromForeignData(item, fieldName, field.foreignKeysImport.field);
 			// public
@@ -469,7 +469,7 @@ class DataStoreItem extends DataStore {
 			}
 			
 			const field = this.fields[fieldName];
-			const service = this.serverConnection.getForeignImportCrudService(field);
+			const service = this.serverConnection.getForeignImportRufsService(field);
 			const primaryKey = service.getPrimaryKeyFromForeignData(item, fieldName, field.foreignKeysImport.field);
 			let candidate = service.findOne(primaryKey);
 			let flag = compareFunc(candidate, fieldFilter.filter, 0);

@@ -44,29 +44,29 @@ class RequestFilter {
 		}
 
 		let response = null;
-		const userCrudGroupOwner = RequestFilter.getForeignKey("crudUser", "crudGroupOwner", tokenData.user);
-		const crudGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "crudGroupOwner");
+		const userRufsGroupOwner = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", tokenData.user);
+		const rufsGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroupOwner");
 
-		if (userCrudGroupOwner.id > 1 && crudGroupOwnerEntries.length > 0) {
-			const objCrudGroupOwner = RequestFilter.getForeignKey(serviceName, "crudGroupOwner", obj);
+		if (userRufsGroupOwner.id > 1 && rufsGroupOwnerEntries.length > 0) {
+			const objRufsGroupOwner = RequestFilter.getForeignKey(serviceName, "rufsGroupOwner", obj);
 
-			if (objCrudGroupOwner.id == undefined) {
-				obj.crudGroupOwner = userCrudGroupOwner.id;
-				objCrudGroupOwner.id = userCrudGroupOwner.id;
+			if (objRufsGroupOwner.id == undefined) {
+				obj.rufsGroupOwner = userRufsGroupOwner.id;
+				objRufsGroupOwner.id = userRufsGroupOwner.id;
 			}
 
-			if (objCrudGroupOwner.id == userCrudGroupOwner.id) {
-				const crudGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "crudGroup");
+			if (objRufsGroupOwner.id == userRufsGroupOwner.id) {
+				const rufsGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroup");
 
-				if (crudGroupEntries.length > 0) {
-					const crudGroup = RequestFilter.getForeignKey(serviceName, "crudGroup", obj);
+				if (rufsGroupEntries.length > 0) {
+					const rufsGroup = RequestFilter.getForeignKey(serviceName, "rufsGroup", obj);
 
-					if (tokenData.groups.indexOf(crudGroup.id) < 0) {
-						response = Response.unauthorized("unauthorized object crudGroup");
+					if (tokenData.groups.indexOf(rufsGroup.id) < 0) {
+						response = Response.unauthorized("unauthorized object rufsGroup");
 					}
 				}
 			} else {
-				response = Response.unauthorized("unauthorized object crudGroupOwner");
+				response = Response.unauthorized("unauthorized object rufsGroupOwner");
 			}
 		}
 
@@ -99,7 +99,7 @@ class RequestFilter {
 	// public
 	static getObject(user, uriInfo, entityManager, serviceName) {
 		return entityManager.findOne(serviceName, RequestFilter.parseQueryParameters(user, serviceName, uriInfo.query)).catch(error => {
-			throw new Error("fail to find object with crudGroup and query parameters related : " + error.message);
+			throw new Error("fail to find object with rufsGroup and query parameters related : " + error.message);
 		});
 	}
 	// public processRead
@@ -151,14 +151,14 @@ class RequestFilter {
 				}
 			}
 		}
-		// se não for admin, limita os resultados para as crudGroup vinculadas a empresa do usuário
-		const userCrudGroupOwner = tokenData.crudGroupOwner;
-		const crudGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "crudGroupOwner");
-		const crudGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "crudGroup");
+		// se não for admin, limita os resultados para as rufsGroup vinculadas a empresa do usuário
+		const userRufsGroupOwner = tokenData.rufsGroupOwner;
+		const rufsGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroupOwner");
+		const rufsGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroup");
 
-		if (userCrudGroupOwner > 1) {
-			if (crudGroupOwnerEntries.length > 0) queryFields[crudGroupOwnerEntries[0].fieldName] = userCrudGroupOwner;
-			if (crudGroupEntries.length > 0) queryFields[crudGroupEntries[0].fieldName] = tokenData.groups;
+		if (userRufsGroupOwner > 1) {
+			if (rufsGroupOwnerEntries.length > 0) queryFields[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
+			if (rufsGroupEntries.length > 0) queryFields[rufsGroupEntries[0].fieldName] = tokenData.groups;
 		}
 
 		return queryFields;
@@ -239,8 +239,8 @@ class RequestFilter {
 	}
 	// processRequest
 	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath) {
-		// crudProcess
-		let crudProcess = tokenData => {
+		// rufsProcess
+		let rufsProcess = tokenData => {
 			if (RequestFilter.dbConnMap.get(tokenData.dbConnInfo) != undefined) {
 				entityManager = RequestFilter.dbConnMap.get(tokenData.dbConnInfo);
 				console.log(`[RequestFilter.processRequest] : using connection ${tokenData.dbConnInfo}`);
@@ -279,7 +279,7 @@ class RequestFilter {
 		then(() => {
 			let tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
 			let access = RequestFilter.checkAuthorization(tokenPayload, serviceName, uriPath);
-			return access == true ? crudProcess(tokenPayload) : Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+			return access == true ? rufsProcess(tokenPayload) : Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
 		}).
 		catch(err => {
 			console.error(err);
@@ -314,18 +314,18 @@ class RequestFilter {
 		}
 
 		let str = JSON.stringify(msg);
-		const objCrudGroupOwner = RequestFilter.getForeignKey(serviceName, "crudGroupOwner", obj);
-		const crudGroup = RequestFilter.getForeignKey(serviceName, "crudGroup", obj);
+		const objRufsGroupOwner = RequestFilter.getForeignKey(serviceName, "rufsGroupOwner", obj);
+		const rufsGroup = RequestFilter.getForeignKey(serviceName, "rufsGroup", obj);
 		console.log("[RequestFilter.notify] broadcasting...", msg);
 
 		for (let [userName, wsServerConnection] of microService.wsServerConnections) {
 			let tokenData = wsServerConnection.token;
-			const userCrudGroupOwner = RequestFilter.getForeignKey("crudUser", "crudGroupOwner", tokenData);
-			// enviar somente para os clients de "crudGroupOwner"
-			let checkCrudGroupOwner = objCrudGroupOwner.id == undefined || objCrudGroupOwner.id == userCrudGroupOwner.id;
-			let checkCrudGroup = crudGroup.id == undefined || tokenData.groups.indexOf(crudGroup.id) >= 0;
-			// restrição de crudGroup
-			if (userCrudGroupOwner.id == 1 || (checkCrudGroupOwner && checkCrudGroup)) {
+			const userRufsGroupOwner = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", tokenData);
+			// enviar somente para os clients de "rufsGroupOwner"
+			let checkRufsGroupOwner = objRufsGroupOwner.id == undefined || objRufsGroupOwner.id == userRufsGroupOwner.id;
+			let checkRufsGroup = rufsGroup.id == undefined || tokenData.groups.indexOf(rufsGroup.id) >= 0;
+			// restrição de rufsGroup
+			if (userRufsGroupOwner.id == 1 || (checkRufsGroupOwner && checkRufsGroup)) {
 				let role = tokenData.roles[serviceName];
 
 				if (role != undefined && role.read != false) {
@@ -344,12 +344,12 @@ class RequestFilter {
 		return entityManager.find(name).catch(() => fsPromises.readFile(name + ".json").then(data => JSON.parse(data)));
 	}
 
-	static updateCrudServices(entityManager) {
-        return RequestFilter.loadTable(entityManager, "crudService").then(rows => {
+	static updateRufsServices(entityManager) {
+        return RequestFilter.loadTable(entityManager, "rufsService").then(rows => {
             RequestFilter.listService = rows;
-        }).then(() => RequestFilter.loadTable(entityManager, "crudGroupUser")).then(rows => {
+        }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupUser")).then(rows => {
             RequestFilter.listGroupUser = rows;
-        }).then(() => RequestFilter.loadTable(entityManager, "crudGroupOwner")).then(rows => {
+        }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupOwner")).then(rows => {
             RequestFilter.listGroupOwner = rows;
         });
 	}

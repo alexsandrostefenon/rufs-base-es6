@@ -115,7 +115,7 @@ class HttpRestRequest {
 
 }
 
-class CrudService extends DataStoreItem {
+class RufsService extends DataStoreItem {
 
 	constructor(serverConnection, params, httpRest) {
 		super(params.name, params.fields);
@@ -249,9 +249,9 @@ class ServerConnection {
 		};
 	}
     // public
-    login(server, user, password, CrudServiceClass, callbackPartial, dbUri) {
+    login(server, user, password, RufsServiceClass, callbackPartial, dbUri) {
 		this.url = server;
-		if (CrudServiceClass == undefined) CrudServiceClass = CrudService;
+		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
     	return this.httpRest.request("authc/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri})
@@ -261,7 +261,7 @@ class ServerConnection {
     		this.httpRest.setToken(this.user.authctoken);
     		const listQueryRemote = [];
             // depois carrega os serviços autorizados
-            for (let params of loginResponse.crudServices) {
+            for (let params of loginResponse.rufsServices) {
             	if (params != null) {
 					params.access = loginResponse.roles[params.name];
 					if (params.access.query == undefined) params.access.query = true;
@@ -270,9 +270,9 @@ class ServerConnection {
 					if (params.access.update == undefined) params.access.update = false;
 					if (params.access.delete == undefined) params.access.delete = false;
 					params.fields = (params.fields != undefined && params.fields != null) ? JSON.parse(params.fields) : {};
-					if (params.fields.crudGroupOwner != undefined && this.user.crudGroupOwner != 1) params.fields.crudGroupOwner.hiden = true;
-					if (params.fields.crudGroupOwner != undefined && params.fields.crudGroupOwner.defaultValue == undefined) params.fields.crudGroupOwner.defaultValue = this.user.crudGroupOwner;
-					let service = new CrudServiceClass(this, params, this.httpRest);
+					if (params.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) params.fields.rufsGroupOwner.hiden = true;
+					if (params.fields.rufsGroupOwner != undefined && params.fields.rufsGroupOwner.defaultValue == undefined) params.fields.rufsGroupOwner.defaultValue = this.user.rufsGroupOwner;
+					let service = new RufsServiceClass(this, params, this.httpRest);
 					this.services[service.params.name] = service;
 
 					if (service.isOnLine != true && service.params.access.query == true) {
@@ -311,14 +311,14 @@ class ServerConnection {
         	delete this.services[serviceName];
         }
     }
-    // devolve um mapa de crudServices e com maps de seus fields onde o parâmetro field é utilizado 
-    getForeignExportCrudServicesFromService(tableName) {
+    // devolve um mapa de rufsServices e com maps de seus fields onde o parâmetro field é utilizado 
+    getForeignExportRufsServicesFromService(tableName) {
     	let list = []; // [{tableName, fieldName}]
     	// monta um mapa de todos que as utilizam
         for (let table in this.services) {
-        	let crudService = this.services[table];
+        	let rufsService = this.services[table];
         	
-        	for (let [fieldName, field] of Object.entries(crudService.fields)) {
+        	for (let [fieldName, field] of Object.entries(rufsService.fields)) {
         		if (field.foreignKeysImport != undefined) { // foreignKeyImport : [{table, field}]
 					if (field.foreignKeysImport.table == tableName) {
 						list.push({table, field: fieldName});
@@ -329,12 +329,12 @@ class ServerConnection {
         
         return list;
     }
-    // devolve o crudService apontado por field
-    getForeignImportCrudService(field) { // foreignKeyImport : [{table, field}]
+    // devolve o rufsService apontado por field
+    getForeignImportRufsService(field) { // foreignKeyImport : [{table, field}]
     	let serviceName = field.foreignKeysImport.table;
         return this.services[serviceName];
     }
 
 }
 
-export {HttpRestRequest, CrudService, ServerConnection};
+export {HttpRestRequest, RufsService, ServerConnection};
