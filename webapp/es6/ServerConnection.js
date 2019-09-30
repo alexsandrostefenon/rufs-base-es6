@@ -54,13 +54,14 @@ class HttpRestRequest {
 			}
 		}
 		
-		let _fetch = HttpRestRequest.fetch != undefined ? HttpRestRequest.fetch : fetch;    
 		let promise;
+		let _fetch = HttpRestRequest.fetch;
+		if (_fetch == undefined) _fetch = fetch;
 		
 		if (HttpRestRequest.$q) {
 			promise = HttpRestRequest.$q.when(_fetch(url, options));
 		} else {
-			promise = _fetch(url, options);
+			promise = HttpRestRequest.fetch(url, options);
 		}
 		
 		this.messageWorking = "Processing request to " + url;
@@ -115,6 +116,36 @@ class HttpRestRequest {
 
 }
 
+class RufsServiceUtils {
+	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
+	// field.foreignKeysImport: {table: "request", field: "rufsGroupOwner"}
+	// foreignKey = {rufsGroupOwner: 2, request: 1}
+	static getForeignKeyFromPrimaryKeyForeign(service, primaryKeyForeign, fieldName) {
+		const fields = service.jsonFields || service.fields;
+		const field = fields[fieldName];
+		service.primaryKeys = [];
+		for (let [fieldName, field] of Object.entries(fields)) if (field.primaryKey == true) service.primaryKeys.push(fieldName);
+		const foreignKey = {};
+		
+		for (let fieldNameOfPrimaryKeyForeign in primaryKeyForeign) {
+			if (fieldNameOfPrimaryKeyForeign != "id" && service.primaryKeys.indexOf(fieldNameOfPrimaryKeyForeign) >= 0) {
+				foreignKey[fieldNameOfPrimaryKeyForeign] = primaryKeyForeign[fieldNameOfPrimaryKeyForeign];
+			}
+		}
+		
+		if (field.foreignKeysImport != undefined) {
+			foreignKey[fieldName] = primaryKeyForeign[field.foreignKeysImport.field];
+		} else if (primaryKeyForeign[fieldName] != undefined) {
+			foreignKey[fieldName] = primaryKeyForeign[fieldName];
+		} else if (primaryKeyForeign.id != undefined) {
+			foreignKey[fieldName] = primaryKeyForeign.id;
+		}
+
+		return foreignKey;
+	}
+
+}
+
 class RufsService extends DataStoreItem {
 
 	constructor(serverConnection, params, httpRest) {
@@ -122,9 +153,9 @@ class RufsService extends DataStoreItem {
 		this.httpRest = httpRest;
         this.serverConnection = serverConnection;
         this.params = params;
-        let microServiceName = params.microServiceName != undefined ? params.microServiceName : "crud";
+        let appName = params.appName != undefined ? params.appName : "crud";
         this.path = CaseConvert.camelToUnderscore(params.name);
-        this.pathRest = microServiceName + "/rest/" + this.path;
+        this.pathRest = appName + "/rest/" + this.path;
 		this.isOnLine = params.isOnLine;
 		this.remoteListeners = [];
 	}
@@ -202,13 +233,14 @@ class ServerConnection {
 
 	constructor() {
     	this.services = {};
+    	this.pathname = "";
 	}
 
 	clearRemoteListeners() {
 		for (let [serviceName, service] of Object.entries(this.services)) service.clearRemoteListeners();
 	}
 	// private -- used in login()
-	webSocketConnect() {
+	webSocketConnect(path) {
 		// Open a WebSocket connection
 		// 'wss://localhost:8443/xxx/websocket'
 		var url = this.url;
@@ -219,12 +251,13 @@ class ServerConnection {
 			url = "ws://" + url.substring(7);
 		}
 
-		if (url.endsWith("/") == false) {
-			url = url + "/";
-		}
-
+		if (url.endsWith("/") == false) url = url + "/";
+		url = url + path;
+		if (url.endsWith("/") == false) url = url + "/";
 		url = url + "websocket";
-		this.webSocket = new WebSocket(url);
+		let _WebSocket = ServerConnection.WebSocket;
+		if (_WebSocket == undefined) _WebSocket = WebSocket;
+		this.webSocket = new _WebSocket(url);
 
     	this.webSocket.onopen = event => {
     		this.webSocket.send(this.httpRest.getToken());
@@ -249,8 +282,9 @@ class ServerConnection {
 		};
 	}
     // public
-    login(server, user, password, RufsServiceClass, callbackPartial, dbUri) {
+    login(server, path, user, password, RufsServiceClass, callbackPartial, dbUri) {
 		this.url = server;
+		if (path != null && path.startsWith("/")) path = path.substring(1);
 		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
@@ -263,6 +297,7 @@ class ServerConnection {
             // depois carrega os serviços autorizados
             for (let params of loginResponse.rufsServices) {
             	if (params != null) {
+					if (params.appName == undefined) params.appName = path;
 					params.access = loginResponse.roles[params.name];
 					if (params.access.query == undefined) params.access.query = true;
 					if (params.access.read == undefined) params.access.read = true;
@@ -293,7 +328,7 @@ class ServerConnection {
                 			queryRemoteServices();
                 		}).catch(error => reject(error));
             		} else {
-            	    	this.webSocketConnect();
+            	    	this.webSocketConnect(path);
                     	resolve(loginResponse);
             		}
             	}
@@ -311,24 +346,6 @@ class ServerConnection {
         	delete this.services[serviceName];
         }
     }
-    // devolve um mapa de rufsServices e com maps de seus fields onde o parâmetro field é utilizado 
-    getForeignExportRufsServicesFromService(tableName) {
-    	let list = []; // [{tableName, fieldName}]
-    	// monta um mapa de todos que as utilizam
-        for (let table in this.services) {
-        	let rufsService = this.services[table];
-        	
-        	for (let [fieldName, field] of Object.entries(rufsService.fields)) {
-        		if (field.foreignKeysImport != undefined) { // foreignKeyImport : [{table, field}]
-					if (field.foreignKeysImport.table == tableName) {
-						list.push({table, field: fieldName});
-					}
-        		}
-        	}
-        }
-        
-        return list;
-    }
     // devolve o rufsService apontado por field
     getForeignImportRufsService(field) { // foreignKeyImport : [{table, field}]
     	let serviceName = field.foreignKeysImport.table;
@@ -337,4 +354,4 @@ class ServerConnection {
 
 }
 
-export {HttpRestRequest, RufsService, ServerConnection};
+export {HttpRestRequest, RufsServiceUtils, RufsService, ServerConnection};

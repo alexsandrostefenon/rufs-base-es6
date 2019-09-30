@@ -1,20 +1,6 @@
 // minimal wrapper to Html5 IndexedDb
 class DataStore {
 
-	static getPrimaryKeysFromFields(fields) {
-		var primaryKeys = [];
-
-		for (var fieldName in fields) {
-			var field = fields[fieldName];
-
-			if (field.primaryKey == true) {
-				primaryKeys.push(fieldName);
-			}
-		}
-
-		return primaryKeys;
-	}
-
 	constructor(name, fields, list) {
 		console.log(`DataStore.constructor(${name})`);
 		const entries = Object.entries(fields);
@@ -44,7 +30,8 @@ class DataStore {
 		this.name;
 		this.fields = fields;
 		this.list = list || [];
-		this.primaryKeys = DataStore.getPrimaryKeysFromFields(this.fields);
+		this.primaryKeys = [];
+		for (let [fieldName, field] of Object.entries(this.fields)) if (field.primaryKey == true) this.primaryKeys.push(fieldName);
 	}
 
 	clear() {

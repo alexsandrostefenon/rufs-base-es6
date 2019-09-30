@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import {Response} from "./server-utils.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {Filter} from "./webapp/es6/DataStore.js";
+import {RufsServiceUtils} from "./webapp/es6/ServerConnection.js";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 
 const fsPromises = fs.promises;
@@ -38,7 +39,7 @@ class RequestFilter {
 		let service;
 
 		try {
-			service = RequestFilter.getService (user, serviceName);
+			service = RequestFilter.getService (tokenData, serviceName);
 		} catch (e) {
 			return Response.unauthorized(e.Message);
 		}
@@ -97,14 +98,38 @@ class RequestFilter {
 		});
 	}
 	// public
-	static getObject(user, uriInfo, entityManager, serviceName) {
-		return entityManager.findOne(serviceName, RequestFilter.parseQueryParameters(user, serviceName, uriInfo.query)).catch(error => {
+	static getObject(tokenData, uriInfo, entityManager, serviceName, useDocument) {
+		const primaryKeyForeign = RequestFilter.parseQueryParameters(tokenData, serviceName, uriInfo.query);
+		return entityManager.findOne(serviceName, primaryKeyForeign).
+		then(obj => {
+			let promises = [];
+
+			if (useDocument == true) {
+				// TODO : inspect response.data and add/replace foreign data (compliance XSD),
+				// like replace request.person (int) to his Person object
+				let rufsService = RequestFilter.getService(tokenData, serviceName);
+
+				if (rufsService.jsonFields.oneToMany != undefined) {
+					for (let item of rufsService.jsonFields.oneToMany.list) {
+						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
+						let foreignKey = RufsServiceUtils.getForeignKeyFromPrimaryKeyForeign(rufsServiceOther, obj, item.field);
+						// TODO : call Query
+						if (obj.oneToMany == undefined) obj.oneToMany = {};
+						if (obj.oneToMany[item.table] == undefined) obj.oneToMany[item.table] = {};
+						promises.push(entityManager.find(item.table, foreignKey).then(list => obj.oneToMany[item.table][item.field] = list));
+					}
+				}
+			}
+
+			return Promise.all(promises).then(() => obj);
+		}).
+		catch(error => {
 			throw new Error("fail to find object with rufsGroup and query parameters related : " + error.message);
 		});
 	}
 	// public processRead
-	static processRead(user, uriInfo, entityManager, serviceName) {
-		return RequestFilter.getObject(user, uriInfo, entityManager, serviceName).then(obj => Response.ok(obj));
+	static processRead(user, uriInfo, entityManager, serviceName, useDocument) {
+		return RequestFilter.getObject(user, uriInfo, entityManager, serviceName, useDocument).then(obj => Response.ok(obj));
 	}
 	// public processUpdate
 	static processUpdate(user, uriInfo, entityManager, serviceName, obj, microService) {
@@ -164,10 +189,10 @@ class RequestFilter {
 		return queryFields;
    	}
 	// public
-	static processQuery(user, uriInfo, entityManager, serviceName) {
-		const fields = RequestFilter.parseQueryParameters(user, serviceName, uriInfo.query);
+	static processQuery(tokenData, uriInfo, entityManager, serviceName) {
+		const fields = RequestFilter.parseQueryParameters(tokenData, serviceName, uriInfo.query);
 		let orderBy = [];
-		const service = RequestFilter.getService (user, serviceName);
+		const service = RequestFilter.getService (tokenData, serviceName);
 
 		for (let [fieldName, field] of Object.entries(service.jsonFields)) {
 			const type = field.type;
@@ -238,7 +263,7 @@ class RequestFilter {
 		return tokenData;
 	}
 	// processRequest
-	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath) {
+	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath, useDocument) {
 		// rufsProcess
 		let rufsProcess = tokenData => {
 			if (RequestFilter.dbConnMap.get(tokenData.dbConnInfo) != undefined) {
@@ -262,7 +287,7 @@ class RequestFilter {
 			} else if (uriPath == "delete") {
 				cf = RequestFilter.processDelete(tokenData, uriInfo, entityManager, serviceName, microService);
 			} else if (uriPath == "read") {
-				cf = RequestFilter.processRead(tokenData, uriInfo, entityManager, serviceName);
+				cf = RequestFilter.processRead(tokenData, uriInfo, entityManager, serviceName, useDocument);
 			} else if (uriPath == "query") {
 				cf = RequestFilter.processQuery(tokenData, uriInfo, entityManager, serviceName);
 			} else {

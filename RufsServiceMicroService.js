@@ -273,6 +273,13 @@ class RufsServiceDbSync {
 			jsonBuilder[fieldName] = jsonBuilderValue;
 		}
 
+/*		if (oldFields.oneToMany != undefined)
+			jsonBuilder.oneToMany = oldFields.oneToMany;
+		else
+			jsonBuilder.oneToMany = newFields.oneToMany;*/
+		if (newFields.get("oneToMany") != undefined)
+			jsonBuilder["oneToMany"] = newFields.get("oneToMany");
+
 		console.log(`rufsServiceDbSync.generateFieldsStr() : tableInfo(${tabelName}) :`, jsonBuilder);
 		// TODO : NEXT LINE ONLY IN DEBUG
 //		jsonBuilder = oldFields;

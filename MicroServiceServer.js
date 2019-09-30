@@ -6,10 +6,8 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import websocket from "websocket";
 import url from "url";
-import fetch from "node-fetch";
 
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
-import {HttpRestRequest, ServerConnection} from "./webapp/es6/ServerConnection.js";
 import {Response} from "./server-utils.js";
 
 const fsPromises = fs.promises;

@@ -1,9 +1,15 @@
+import fetch from "node-fetch";
+import websocket from "websocket";
+import {HttpRestRequest, ServerConnection} from "./webapp/es6/ServerConnection.js";
+import {MicroServiceServer} from "./MicroServiceServer.js";
+
+HttpRestRequest.fetch = fetch;
+ServerConnection.WebSocket = websocket.client;
 // connnect into rest server
 class MicroServiceClient extends ServerConnection {
 
 	constructor(config) {
 		super();
-		HttpRestRequest.fetch = fetch;
 		// config are ip, port and path to connect and user and password to acess
 		if (config != undefined) {
 			this.config = config;
@@ -17,56 +23,13 @@ class MicroServiceClient extends ServerConnection {
 		if (this.config.appName == undefined) this.config.appName = MicroServiceServer.getArg("appName", "rufs");
 		if (this.config.userId == undefined) this.config.userId = MicroServiceServer.getArg("user", "guest");
 		if (this.config.password == undefined) this.config.password = MicroServiceServer.getArg("password", "anonymous");
-		this.urlRest = `${this.config.protocol}://${this.config.host}:${this.config.port}/${this.config.appName}`;
+		this.server = `${this.config.protocol}://${this.config.host}:${this.config.port}`;
 	}
 
 	login() {
-		return super.login(this.urlRest, this.config.userId, this.config.password);
-/*		
-		this.restHeaders = {"content-type":"application/json"};
-		return fetch(`${this.urlRest}/rest/authc`, {method: "POST", headers: this.restHeaders, body: JSON.stringify(this.config)}).
-		then(response => {
-			const contentType = response.headers.get("content-type");
-
-			if (response.status === 200) {
-				if (contentType && contentType.indexOf("application/json") >= 0) {
-					return response.json();
-				} else {
-					throw new Error(`Ivalid contentType ${contentType}`);
-				}
-			} else {
-				return response.text().then(message => {
-					throw new Error(response.statusText + " : " + message);
-				});
-			}
-		}).
-		then(loginResponse => {
-			this.restHeaders.authorization = `Token ${loginResponse.user.authctoken}`;
-			return loginResponse;
-		});
-*/
+		return super.login(this.server, this.config.appName, this.config.userId, this.config.password);
 	}
 /*
-	// create
-	_post(path, restObj) {
-		return fetch(`${this.urlRest}/rest/${path}/create`, {method: "POST", headers: this.restHeaders, body: JSON.stringify(restObj)}).
-		then(response => {
-			const contentType = response.headers.get("content-type");
-
-			if (response.status === 200) {
-				if (contentType && contentType.indexOf("application/json") >= 0) {
-					return response.json();
-				} else {
-					throw new Error(`Ivalid contentType ${contentType}`);
-				}
-			} else {
-				return response.text().then(message => {
-					throw new Error(response.statusText + " : " + message);
-				});
-			}
-		});
-	}
-
 	_updateList(path, listIn) {
 		const processNext = list => {
 			if (list.length == 0) return true;
