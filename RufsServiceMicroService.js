@@ -466,10 +466,10 @@ class RufsServiceMicroService extends MicroServiceServer {
 				then(() => this.rufsServiceDbSync.updateRufsServices()).
 				then(() => entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => entityManager.insert("rufsGroupOwner", {name: "ADMIN"}))).
 				then(() => entityManager.findOne("rufsUser", {name: "admin"}).catch(() => entityManager.insert("rufsUser", userAdmin))).
-				then(() => entityManager.find("rufsService")).then(rows => fsPromises.writeFile("rufsService.json", JSON.stringify(rows))).
-				then(() => entityManager.find("rufsGroupOwner")).then(rows => fsPromises.writeFile("rufsGroupOwner.json", JSON.stringify(rows))).
-				then(() => entityManager.find("rufsUser")).then(rows => fsPromises.writeFile("rufsUser.json", JSON.stringify(rows))).
-				then(() => entityManager.find("rufsGroupUser")).then(rows => fsPromises.writeFile("rufsGroupUser.json", JSON.stringify(rows)));
+				then(() => entityManager.find("rufsService")).then(rows => fsPromises.writeFile("rufsService.json", JSON.stringify(rows, null, "\t"))).
+				then(() => entityManager.find("rufsGroupOwner")).then(rows => fsPromises.writeFile("rufsGroupOwner.json", JSON.stringify(rows, null, "\t"))).
+				then(() => entityManager.find("rufsUser")).then(rows => fsPromises.writeFile("rufsUser.json", JSON.stringify(rows, null, "\t"))).
+				then(() => entityManager.find("rufsGroupUser")).then(rows => fsPromises.writeFile("rufsGroupUser.json", JSON.stringify(rows, null, "\t")));
 			});
 		}).
 		then(() => {
