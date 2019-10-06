@@ -151,7 +151,7 @@ class MicroServiceServer {
 	}
 
 	listen() {
-		console.log(`starting listen in ${this.urlRest}...`);
+		console.log(`starting listen in ${this.config.appName}...`);
 		return new Promise((resolve, reject) => {
 			this.server.on("listening", msg => {
 				console.log(`...listening at http://${this.server.address().address}:${this.server.address().port}`);

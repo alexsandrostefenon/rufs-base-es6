@@ -45,7 +45,7 @@ class RequestFilter {
 		}
 
 		let response = null;
-		const userRufsGroupOwner = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", tokenData.user);
+		const userRufsGroupOwner = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", tokenData);
 		const rufsGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroupOwner");
 
 		if (userRufsGroupOwner.id > 1 && rufsGroupOwnerEntries.length > 0) {
