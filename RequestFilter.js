@@ -112,11 +112,14 @@ class RequestFilter {
 				if (rufsService.jsonFields.oneToMany != undefined) {
 					for (let item of rufsService.jsonFields.oneToMany.list) {
 						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
-						let foreignKey = RufsServiceUtils.getForeignKeyFromPrimaryKeyForeign(rufsServiceOther, obj, item.field);
-						// TODO : call Query
-						if (obj.oneToMany == undefined) obj.oneToMany = {};
-						if (obj.oneToMany[item.table] == undefined) obj.oneToMany[item.table] = {};
-						promises.push(entityManager.find(item.table, foreignKey).then(list => obj.oneToMany[item.table][item.field] = list));
+						
+						if (rufsServiceOther.jsonFields[item.field].title != undefined) {
+							let foreignKey = RufsServiceUtils.getForeignKeyFromPrimaryKeyForeign(rufsServiceOther, obj, item.field);
+							// TODO : call Query
+							if (obj.oneToMany == undefined) obj.oneToMany = {};
+							if (obj.oneToMany[item.table] == undefined) obj.oneToMany[item.table] = {};
+							promises.push(entityManager.find(item.table, foreignKey).then(list => obj.oneToMany[item.table][item.field] = list));
+						}
 					}
 				}
 			}
