@@ -27,7 +27,7 @@ class DataStore {
 			}
 		}
 		
-		this.name;
+		this.name = name;
 		this.fields = fields;
 		this.list = list || [];
 		this.primaryKeys = [];
@@ -269,8 +269,8 @@ class DataStoreItem extends DataStore {
 			if (pos >= 0) {
 				stringBuffer.push(service.listStr[pos]);
 			} else {
-				console.error(`this.buildField : don't find itemStr from service ${service.params.name} from primaryKey : `, primaryKey, field);
-//				throw new Error(`this.buildField : don't find itemStr from service ${service.params.name}`);
+				console.error(`this.buildField : don't find itemStr from service ${service.name} from primaryKey : `, primaryKey, field);
+//				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
 			}
 		} else if (fieldName == "id") {
 			// TODO : o "id" não deve fazer parte de StrValue, criar uma lista para armazenar os primaryKeys

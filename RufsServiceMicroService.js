@@ -227,6 +227,7 @@ class RufsServiceDbSync {
 			}
 			// habilita os campos PLENAMENTE não SQL
 			jsonBuilderValue.title = field.title;
+			jsonBuilderValue.document = field.document;
 			jsonBuilderValue.options = field.options;
 			jsonBuilderValue.optionsLabels = field.optionsLabels;
 			jsonBuilderValue.sortType = field.sortType;
@@ -238,6 +239,7 @@ class RufsServiceDbSync {
 				let fieldOriginal = oldFields[fieldName];
 				// copia do original os campos PLENAMENTE não SQL
 				jsonBuilderValue.title = fieldOriginal.title;
+				jsonBuilderValue.document = fieldOriginal.document;
 				jsonBuilderValue.options = fieldOriginal.options;
 				jsonBuilderValue.optionsLabels = fieldOriginal.optionsLabels;
 				jsonBuilderValue.sortType = fieldOriginal.sortType;
@@ -272,13 +274,6 @@ class RufsServiceDbSync {
 
 			jsonBuilder[fieldName] = jsonBuilderValue;
 		}
-
-/*		if (oldFields.oneToMany != undefined)
-			jsonBuilder.oneToMany = oldFields.oneToMany;
-		else
-			jsonBuilder.oneToMany = newFields.oneToMany;*/
-		if (newFields.get("oneToMany") != undefined)
-			jsonBuilder["oneToMany"] = newFields.get("oneToMany");
 
 		console.log(`rufsServiceDbSync.generateFieldsStr() : tableInfo(${tabelName}) :`, jsonBuilder);
 		// TODO : NEXT LINE ONLY IN DEBUG

@@ -107,20 +107,13 @@ class RequestFilter {
 			if (useDocument == true) {
 				// TODO : inspect response.data and add/replace foreign data (compliance XSD),
 				// like replace request.person (int) to his Person object
-				let rufsService = RequestFilter.getService(tokenData, serviceName);
+				const dependents = RufsServiceUtils.getDependents(RequestFilter.listService, serviceName, true);
 
-				if (rufsService.jsonFields.oneToMany != undefined) {
-					for (let item of rufsService.jsonFields.oneToMany.list) {
-						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
-						
-						if (rufsServiceOther.jsonFields[item.field].title != undefined) {
-							let foreignKey = RufsServiceUtils.getForeignKeyFromPrimaryKeyForeign(rufsServiceOther, obj, item.field);
-							// TODO : call Query
-							if (obj.oneToMany == undefined) obj.oneToMany = {};
-							if (obj.oneToMany[item.table] == undefined) obj.oneToMany[item.table] = {};
-							promises.push(entityManager.find(item.table, foreignKey).then(list => obj.oneToMany[item.table][item.field] = list));
-						}
-					}
+				for (let item of dependents) {
+					let rufsService = RequestFilter.getService(tokenData, item.table);
+					let field = rufsService.jsonFields[item.field];
+					let foreignKey = RufsServiceUtils.getForeignKeyFromPrimaryKeyForeign(rufsService, obj, item.field);
+					promises.push(entityManager.find(item.table, foreignKey).then(list => obj[field.document] = list));
 				}
 			}
 

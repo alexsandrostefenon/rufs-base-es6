@@ -253,22 +253,6 @@ class DbClientPostgres {
 						console.error(`DbClientPostgres.getTablesInfo().foreignKeysImportUsage() : unknow types from table ${tableName} : rec : ${JSON.stringify(rec)}`);
 					}
 				}
-				// monta um mapa de todos que as utilizam
-				for (let [tableName, rufsService] of mapTables.entries()) {
-					for (let [tableNameOther, rufsServiceOther] of mapTables.entries()) {
-						for (let [fieldName, field] of rufsServiceOther.fields.entries()) {
-							if (field.foreignKeysImport != undefined) { // foreignKeyImport : [{table, field}]
-								for (let foreignKeysImport of field.foreignKeysImport) {
-									if (foreignKeysImport.table == tableName/* && field.title != undefined && field.title.length > 0*/) {
-										if (rufsService.fields.has("oneToMany") == false) rufsService.fields.set("oneToMany", {list: []});
-										rufsService.fields.get("oneToMany").list.push({"table": tableNameOther, "field": fieldName});
-										break;
-									}
-								}
-							}
-						}
-					}
-				}
 
 				console.log(`DbClientPostgres.getTablesInfo() : response :`, mapTables);
 				return mapTables;

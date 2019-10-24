@@ -144,6 +144,41 @@ class RufsServiceUtils {
 		return foreignKey;
 	}
 
+	static getDependents(services, name, onlyInDocument) {
+		if (typeof services === 'object' && services !== null) {
+			services = Object.values(services);
+		}
+
+		if (Array.isArray(services) == false) {
+			console.error(`[RufsServiceUtils.getDependents] : invalid param services:`, services);
+		}
+
+		const ret = [];
+
+		for (let service of services) {
+			if (service.jsonFields == undefined) {
+				service.jsonFields = typeof service.fields === "string" ? JSON.parse(service.fields) : service.fields;
+			}
+
+			for (let [fieldName, field] of Object.entries(service.jsonFields)) {
+				if (field.foreignKeysImport != undefined) { // foreignKeyImport : [{table, field}]
+					if (field.foreignKeysImport.table == name) {
+						if (onlyInDocument != true || field.document != undefined) {
+							if (ret.find(item => item.table == service.name && item.field == fieldName) != undefined) {
+								console.error(`[RufsServiceUtils.getDependents] : already added table ${service.name} and field ${fieldName} combination.`);
+							} else {
+								ret.push({"table": service.name, "field": fieldName})
+							}
+//							break;
+						}
+					}
+				}
+			}
+		}
+
+		return ret;
+	}
+
 }
 
 class RufsService extends DataStoreItem {
@@ -308,7 +343,7 @@ class ServerConnection {
 					if (params.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) params.fields.rufsGroupOwner.hiden = true;
 					if (params.fields.rufsGroupOwner != undefined && params.fields.rufsGroupOwner.defaultValue == undefined) params.fields.rufsGroupOwner.defaultValue = this.user.rufsGroupOwner;
 					let service = new RufsServiceClass(this, params, this.httpRest);
-					this.services[service.params.name] = service;
+					this.services[service.name] = service;
 
 					if (service.isOnLine != true && service.params.access.query == true) {
 						listQueryRemote.push(service);
