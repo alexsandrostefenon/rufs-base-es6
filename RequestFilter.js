@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import {Response} from "./server-utils.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {Filter} from "./webapp/es6/DataStore.js";
-import {RufsServiceUtils} from "./webapp/es6/ServerConnection.js";
+import {RufsSchema} from "./webapp/es6/DataStore.js";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 
 const fsPromises = fs.promises;
@@ -11,10 +11,9 @@ const fsPromises = fs.promises;
 class RequestFilter {
 	static getForeignKeyEntries(serviceName, foreignServiceName) {
         const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
-		if (service.jsonFields == undefined) service.jsonFields = JSON.parse(service.fields);
 		let foreignKeyEntries = [];
 
-		for (let [fieldName, field] of Object.entries(service.jsonFields)) {
+		for (let [fieldName, field] of Object.entries(service.fields)) {
 			if (field.foreignKeysImport != undefined && field.foreignKeysImport.table == foreignServiceName) {
 				foreignKeyEntries.push({fieldName, field});
 			}
@@ -82,7 +81,6 @@ class RequestFilter {
 		}
 
         const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
-		if (service.jsonFields == undefined) service.jsonFields = JSON.parse(service.fields);
 		return service;
 	}
 	// public
@@ -105,15 +103,34 @@ class RequestFilter {
 			let promises = [];
 
 			if (useDocument == true) {
-				// TODO : inspect response.data and add/replace foreign data (compliance XSD),
-				// like replace request.person (int) to his Person object
-				const dependents = RufsServiceUtils.getDependents(RequestFilter.listService, serviceName, true);
+				// One To One
+				{
+					const service = RequestFilter.getService(tokenData, serviceName);
+					
+					for (let [fieldName, field] of Object.entries(service.fields)) {
+						if (field.foreignKeysImport != undefined) {
+							let item = field.foreignKeysImport;
+							
+							if (tokenData.roles[item.table] != undefined) {
+								// neste caso, valRef contém o id do registro de referência
+								const rufsServiceOther = RequestFilter.getService(tokenData, item.table);
+								// dataForeign, fieldNameForeign, fieldName
+								const primaryKey = rufsServiceOther.getPrimaryKeyFromForeignData(obj, fieldName, item.field);
+								promises.push(entityManager.findOne(item.table, primaryKey).then(objExternal => obj[fieldName] = objExternal));
+							}
+						}
+					}
+				}
+				// One To Many
+				{
+					const dependents = RufsSchema.getDependents(RequestFilter.listService, serviceName, true);
 
-				for (let item of dependents) {
-					let rufsService = RequestFilter.getService(tokenData, item.table);
-					let field = rufsService.jsonFields[item.field];
-					let foreignKey = RufsServiceUtils.getForeignKeyFromPrimaryKeyForeign(rufsService, obj, item.field);
-					promises.push(entityManager.find(item.table, foreignKey).then(list => obj[field.document] = list));
+					for (let item of dependents) {
+						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
+						let field = rufsServiceOther.fields[item.field];
+						let foreignKey = RufsSchema.getForeignKeyFromPrimaryKeyForeign(rufsServiceOther, obj, item.field);
+						promises.push(entityManager.find(item.table, foreignKey).then(list => obj[field.document] = list));
+					}
 				}
 			}
 
@@ -155,7 +172,7 @@ class RequestFilter {
 		let queryFields = {};
 		const service = RequestFilter.getService (tokenData, serviceName);
 
-		for (let [fieldName, field] of Object.entries(service.jsonFields)) {
+		for (let [fieldName, field] of Object.entries(service.fields)) {
 			if (field.primaryKey == true) {
 				const value = queryParameters[fieldName];
 
@@ -190,7 +207,7 @@ class RequestFilter {
 		let orderBy = [];
 		const service = RequestFilter.getService (tokenData, serviceName);
 
-		for (let [fieldName, field] of Object.entries(service.jsonFields)) {
+		for (let [fieldName, field] of Object.entries(service.fields)) {
 			const type = field.type;
 
 			if (field.primaryKey == true && type != undefined) {
@@ -314,7 +331,7 @@ class RequestFilter {
 		let getPrimaryKey = () => {
 			let primaryKeyBuilder = {};
 			
-			for (let [fieldName, field] of Object.entries(service.jsonFields)) {
+			for (let [fieldName, field] of Object.entries(service.fields)) {
 				if (field["primaryKey"] == true) {
 					primaryKeyBuilder[fieldName] = obj[fieldName];
 				}
@@ -367,7 +384,8 @@ class RequestFilter {
 
 	static updateRufsServices(entityManager) {
         return RequestFilter.loadTable(entityManager, "rufsService").then(rows => {
-            RequestFilter.listService = rows;
+        	RequestFilter.listService = [];
+        	for (let row of rows) RequestFilter.listService.push(new RufsSchema(row.name, row.fields));
         }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupUser")).then(rows => {
             RequestFilter.listGroupUser = rows;
         }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupOwner")).then(rows => {

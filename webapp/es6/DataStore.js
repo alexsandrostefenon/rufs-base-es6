@@ -1,9 +1,10 @@
-// minimal wrapper to Html5 IndexedDb
-class DataStore {
+class RufsSchema {
 
-	constructor(name, fields, list) {
+	constructor(name, fields) {
 		console.log(`DataStore.constructor(${name})`);
-		const entries = Object.entries(fields);
+		this.name = name;
+		this.fields = typeof fields === "string" ? JSON.parse(fields) : fields;
+		const entries = Object.entries(this.fields);
 		this.shortDescriptionList = [];
 		
 		for (let [fieldName, field] of entries) {
@@ -27,22 +28,8 @@ class DataStore {
 			}
 		}
 		
-		this.name = name;
-		this.fields = fields;
-		this.list = list || [];
 		this.primaryKeys = [];
 		for (let [fieldName, field] of Object.entries(this.fields)) if (field.primaryKey == true) this.primaryKeys.push(fieldName);
-	}
-
-	clear() {
-		for (let fieldName in this.fields) {
-			let field = this.fields[fieldName];
-			delete field.externalReferencesStr;
-		}
-	}
-
-	process(action, params) {
-		this.clear();
 	}
 	
 	checkPrimaryKey(obj) {
@@ -79,7 +66,100 @@ class DataStore {
 
 		return primaryKey;
 	}
-	
+
+	copyFields(dataIn) {
+		var dataOut = {};
+
+		for (let fieldName in this.fields) {
+			let field = this.fields[fieldName];
+			let value = dataIn[fieldName];
+			
+			if (field.type == "i" && (typeof value) === "string") {
+				dataOut[fieldName] = Number.parseInt(value);
+			} else {
+				dataOut[fieldName] = value;
+			}
+		}
+
+		return dataOut;
+	}
+	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
+	// field.foreignKeysImport: {table: "request", field: "rufsGroupOwner"}
+	// foreignKey = {rufsGroupOwner: 2, request: 1}
+	static getForeignKeyFromPrimaryKeyForeign(service, primaryKeyForeign, fieldName) {
+		const field = service.fields[fieldName];
+		service.primaryKeys = [];
+		for (let [fieldName, field] of Object.entries(service.fields)) if (field.primaryKey == true) service.primaryKeys.push(fieldName);
+		const foreignKey = {};
+		
+		for (let fieldNameOfPrimaryKeyForeign in primaryKeyForeign) {
+			if (fieldNameOfPrimaryKeyForeign != "id" && service.primaryKeys.indexOf(fieldNameOfPrimaryKeyForeign) >= 0) {
+				foreignKey[fieldNameOfPrimaryKeyForeign] = primaryKeyForeign[fieldNameOfPrimaryKeyForeign];
+			}
+		}
+		
+		if (field.foreignKeysImport != undefined) {
+			foreignKey[fieldName] = primaryKeyForeign[field.foreignKeysImport.field];
+		} else if (primaryKeyForeign[fieldName] != undefined) {
+			foreignKey[fieldName] = primaryKeyForeign[fieldName];
+		} else if (primaryKeyForeign.id != undefined) {
+			foreignKey[fieldName] = primaryKeyForeign.id;
+		}
+
+		return foreignKey;
+	}
+
+	static getDependents(services, name, onlyInDocument) {
+		if (typeof services === 'object' && services !== null) {
+			services = Object.values(services);
+		}
+
+		if (Array.isArray(services) == false) {
+			console.error(`[RufsSchema.getDependents] : invalid param services:`, services);
+		}
+
+		const ret = [];
+
+		for (let service of services) {
+			for (let [fieldName, field] of Object.entries(service.fields)) {
+				if (field.foreignKeysImport != undefined) { // foreignKeysImport : [{table, field}]
+					if (field.foreignKeysImport.table == name) {
+						if (onlyInDocument != true || field.document != undefined) {
+							if (ret.find(item => item.table == service.name && item.field == fieldName) != undefined) {
+								console.error(`[RufsSchema.getDependents] : already added table ${service.name} and field ${fieldName} combination.`);
+							} else {
+								ret.push({"table": service.name, "field": fieldName})
+							}
+//							break;
+						}
+					}
+				}
+			}
+		}
+
+		return ret;
+	}
+
+}
+// minimal wrapper to Html5 IndexedDb
+class DataStore extends RufsSchema {
+
+	constructor(name, fields, list) {
+		super(name, fields);
+		this.list = list || [];
+	}
+
+	clear() {
+		for (let fieldName in this.fields) {
+			let field = this.fields[fieldName];
+			delete field.externalReferencesStr;
+		}
+	}
+
+	process(action, params) {
+		this.clear();
+	}
+
 	find(params) {
         return Filter.find(this.list, params);
 	}
@@ -118,24 +198,7 @@ class DataStore {
 		console.log("DataStore.removeInternal : pos = ", pos, ", data :", this.list[pos]);
         return pos >= 0 ? this.updateList(this.list[pos], pos) : null;
 	}
-	// private, use in save and update methods
-	copyFields(dataIn) {
-		var dataOut = {};
 
-		for (let fieldName in this.fields) {
-			let field = this.fields[fieldName];
-			let value = dataIn[fieldName];
-			
-			if (field.type == "i" && (typeof value) === "string") {
-				dataOut[fieldName] = Number.parseInt(value);
-			} else {
-				dataOut[fieldName] = value;
-			}
-		}
-
-		return dataOut;
-	}
-	
 }
 // manager of  IndexedDb collections
 class DataStoreManager {
@@ -742,4 +805,4 @@ class Pagination {
 
 }
 
-export {DataStore, DataStoreItem, Filter, Pagination}
+export {RufsSchema, DataStore, DataStoreItem, Filter, Pagination}

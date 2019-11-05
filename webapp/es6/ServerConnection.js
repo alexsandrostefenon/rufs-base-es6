@@ -116,71 +116,6 @@ class HttpRestRequest {
 
 }
 
-class RufsServiceUtils {
-	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
-	// field.foreignKeysImport: {table: "request", field: "rufsGroupOwner"}
-	// foreignKey = {rufsGroupOwner: 2, request: 1}
-	static getForeignKeyFromPrimaryKeyForeign(service, primaryKeyForeign, fieldName) {
-		const fields = service.jsonFields || service.fields;
-		const field = fields[fieldName];
-		service.primaryKeys = [];
-		for (let [fieldName, field] of Object.entries(fields)) if (field.primaryKey == true) service.primaryKeys.push(fieldName);
-		const foreignKey = {};
-		
-		for (let fieldNameOfPrimaryKeyForeign in primaryKeyForeign) {
-			if (fieldNameOfPrimaryKeyForeign != "id" && service.primaryKeys.indexOf(fieldNameOfPrimaryKeyForeign) >= 0) {
-				foreignKey[fieldNameOfPrimaryKeyForeign] = primaryKeyForeign[fieldNameOfPrimaryKeyForeign];
-			}
-		}
-		
-		if (field.foreignKeysImport != undefined) {
-			foreignKey[fieldName] = primaryKeyForeign[field.foreignKeysImport.field];
-		} else if (primaryKeyForeign[fieldName] != undefined) {
-			foreignKey[fieldName] = primaryKeyForeign[fieldName];
-		} else if (primaryKeyForeign.id != undefined) {
-			foreignKey[fieldName] = primaryKeyForeign.id;
-		}
-
-		return foreignKey;
-	}
-
-	static getDependents(services, name, onlyInDocument) {
-		if (typeof services === 'object' && services !== null) {
-			services = Object.values(services);
-		}
-
-		if (Array.isArray(services) == false) {
-			console.error(`[RufsServiceUtils.getDependents] : invalid param services:`, services);
-		}
-
-		const ret = [];
-
-		for (let service of services) {
-			if (service.jsonFields == undefined) {
-				service.jsonFields = typeof service.fields === "string" ? JSON.parse(service.fields) : service.fields;
-			}
-
-			for (let [fieldName, field] of Object.entries(service.jsonFields)) {
-				if (field.foreignKeysImport != undefined) { // foreignKeyImport : [{table, field}]
-					if (field.foreignKeysImport.table == name) {
-						if (onlyInDocument != true || field.document != undefined) {
-							if (ret.find(item => item.table == service.name && item.field == fieldName) != undefined) {
-								console.error(`[RufsServiceUtils.getDependents] : already added table ${service.name} and field ${fieldName} combination.`);
-							} else {
-								ret.push({"table": service.name, "field": fieldName})
-							}
-//							break;
-						}
-					}
-				}
-			}
-		}
-
-		return ret;
-	}
-
-}
-
 class RufsService extends DataStoreItem {
 
 	constructor(serverConnection, params, httpRest) {
@@ -339,10 +274,9 @@ class ServerConnection {
 					if (params.access.create == undefined) params.access.create = false;
 					if (params.access.update == undefined) params.access.update = false;
 					if (params.access.delete == undefined) params.access.delete = false;
-					params.fields = (params.fields != undefined && params.fields != null) ? JSON.parse(params.fields) : {};
-					if (params.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) params.fields.rufsGroupOwner.hiden = true;
-					if (params.fields.rufsGroupOwner != undefined && params.fields.rufsGroupOwner.defaultValue == undefined) params.fields.rufsGroupOwner.defaultValue = this.user.rufsGroupOwner;
 					let service = new RufsServiceClass(this, params, this.httpRest);
+					if (service.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) service.fields.rufsGroupOwner.hiden = true;
+					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.defaultValue == undefined) service.fields.rufsGroupOwner.defaultValue = this.user.rufsGroupOwner;
 					this.services[service.name] = service;
 
 					if (service.isOnLine != true && service.params.access.query == true) {
@@ -382,11 +316,11 @@ class ServerConnection {
         }
     }
     // devolve o rufsService apontado por field
-    getForeignImportRufsService(field) { // foreignKeyImport : [{table, field}]
+    getForeignImportRufsService(field) { // foreignKeysImport : [{table, field}]
     	let serviceName = field.foreignKeysImport.table;
         return this.services[serviceName];
     }
 
 }
 
-export {HttpRestRequest, RufsServiceUtils, RufsService, ServerConnection};
+export {HttpRestRequest, RufsService, ServerConnection};
