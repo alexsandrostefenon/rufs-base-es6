@@ -320,9 +320,7 @@ class RufsServiceDbSync {
 let tablesRufs = {
 	rufsService: {
 		name: {primaryKey: true},
-		menu: {},
 		template:{},
-		saveAndExit: {type: "b"},
 		isOnLine: {type: "b"},
 		title: {},
 		fields: {length: 30000}
