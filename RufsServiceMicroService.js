@@ -275,7 +275,7 @@ class RufsServiceDbSync {
 			jsonBuilder[fieldName] = jsonBuilderValue;
 		}
 
-		console.log(`rufsServiceDbSync.generateFieldsStr() : tableInfo(${tabelName}) :`, jsonBuilder);
+//		console.log(`rufsServiceDbSync.generateFieldsStr() : tableInfo(${tabelName}) :`, jsonBuilder);
 		// TODO : NEXT LINE ONLY IN DEBUG
 //		jsonBuilder = oldFields;
 		return JSON.stringify(jsonBuilder);
@@ -291,7 +291,7 @@ class RufsServiceDbSync {
 				}
 				
 				let [name, tableInfo] = it.value;
-				console.log(`RequestFilter.updateRufsServices.entityManager.getTablesInfo().process(${name})`);
+//				console.log(`RequestFilter.updateRufsServices.entityManager.getTablesInfo().process(${name})`);
 				
 				return this.entityManager.findOne("rufsService", {name}).then(service => {
             		service.fields = this.generateFieldsStr(name, tableInfo.fields, service.fields);

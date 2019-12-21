@@ -254,7 +254,7 @@ class DbClientPostgres {
 					}
 				}
 
-				console.log(`DbClientPostgres.getTablesInfo() : response :`, mapTables);
+//				console.log(`DbClientPostgres.getTablesInfo() : response :`, mapTables);
 				return mapTables;
 			}).catch(err => {
 				console.error(`DbClientPostgres.getTablesInfo().foreignKeysImportUsage() : EntityClass.getDeclaredFields.find(COLUMNS) : ${err.message}`);

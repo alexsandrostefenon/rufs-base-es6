@@ -124,6 +124,10 @@ class MicroServiceServer {
 		}
 
 		this.onRequest(req, res, next, resource, action).
+		catch(err => {
+			console.error(`[${this.appName}] ${req.url} : ${err.message}`);
+			return Response.internalServerError(err.message);
+		}).
 		then(response => res.status(response.status).send(response.data));
 	}
 	// remove the session after it's closed
