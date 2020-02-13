@@ -77,7 +77,7 @@ class RequestFilter {
 		serviceName = CaseConvert.underscoreToCamel (serviceName, false);
 
 		if (tokenData.roles[serviceName] == undefined) {
-			throw new Exception ("Unauthorized service Access");
+			throw new Error("Unauthorized service Access");
 		}
 
         const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
@@ -96,9 +96,9 @@ class RequestFilter {
 		});
 	}
 	// public
-	static getObject(tokenData, uriInfo, entityManager, serviceName, useDocument) {
-		const primaryKeyForeign = RequestFilter.parseQueryParameters(tokenData, serviceName, uriInfo.query);
-		return entityManager.findOne(serviceName, primaryKeyForeign).
+	static getObject(tokenData, queryParams, entityManager, serviceName, useDocument) {
+		const primaryKey = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams, true);
+		return entityManager.findOne(serviceName, primaryKey).
 		then(obj => {
 			let promises = [];
 
@@ -137,21 +137,21 @@ class RequestFilter {
 			return Promise.all(promises).then(() => obj);
 		}).
 		catch(error => {
-			throw new Error("fail to find object with rufsGroup and query parameters related : " + error.message);
+			throw new Error(`[RequestFilter.getObject] for service ${serviceName}, fail to find object with primaryKey ${JSON.stringify(primaryKey)} : ` + error.message);
 		});
 	}
 	// public processRead
-	static processRead(user, uriInfo, entityManager, serviceName, useDocument) {
-		return RequestFilter.getObject(user, uriInfo, entityManager, serviceName, useDocument).then(obj => Response.ok(obj));
+	static processRead(user, queryParams, entityManager, serviceName, useDocument) {
+		return RequestFilter.getObject(user, queryParams, entityManager, serviceName, useDocument).then(obj => Response.ok(obj));
 	}
 	// public processUpdate
-	static processUpdate(user, uriInfo, entityManager, serviceName, obj, microService) {
-		return RequestFilter.getObject(user, uriInfo, entityManager, serviceName).then(oldObj => {
+	static processUpdate(user, queryParams, entityManager, serviceName, obj, microService) {
+		return RequestFilter.getObject(user, queryParams, entityManager, serviceName).then(oldObj => {
 			const response = RequestFilter.checkObjectAccess(user, serviceName, obj);
 
 			if (response != null) return Promise.resolve(response);
 
-			return entityManager.update(serviceName, RequestFilter.parseQueryParameters(user, serviceName, uriInfo.query), obj).then(newObj => {
+			return entityManager.update(serviceName, RequestFilter.parseQueryParameters(user, serviceName, queryParams, true), obj).then(newObj => {
 				const primaryKey = RequestFilter.notify(microService, newObj, serviceName, false);
 				// force read, cases of triggers before break result value
 				return entityManager.findOne(serviceName, primaryKey).then(_obj => Response.ok(_obj));
@@ -159,51 +159,65 @@ class RequestFilter {
 		});
 	}
 	// public processDelete
-	static processDelete(user, uriInfo, entityManager, serviceName, microService) {
-		return RequestFilter.getObject(user, uriInfo, entityManager, serviceName).then(obj => {
-			return entityManager.deleteOne(serviceName, RequestFilter.parseQueryParameters(user, serviceName, uriInfo.query)).then(objDeleted => {
+	static processDelete(user, queryParams, entityManager, serviceName, microService) {
+		return RequestFilter.getObject(user, queryParams, entityManager, serviceName).then(obj => {
+			return entityManager.deleteOne(serviceName, RequestFilter.parseQueryParameters(user, serviceName, queryParams, true)).then(objDeleted => {
 				RequestFilter.notify(microService, objDeleted, serviceName, true);
 				return Response.ok(objDeleted);
 			});
 		});
 	}
-	// private
-	static parseQueryParameters(tokenData, serviceName, queryParameters) {
-		let queryFields = {};
-		const service = RequestFilter.getService (tokenData, serviceName);
+	// public
+	static processPatch(user, entityManager, serviceName, obj, microService) {
+		const response = RequestFilter.checkObjectAccess(user, serviceName, obj);
 
-		for (let [fieldName, field] of Object.entries(service.fields)) {
-			if (field.primaryKey == true) {
-				const value = queryParameters[fieldName];
+		if (response != null) Promise.resolve(response);
 
-				if (value != undefined) {
-					const type = field["type"];
-					
-					if (type == undefined || type == "s") {
-						queryFields[fieldName] = value;
-					} else if (type == "n" || type == "i") {
-						queryFields[fieldName] = Number.parseInt(value);
-					} else if (type == "b") {
-						queryFields[fieldName] = (value == "true");
-					}
-				}
+		const service = RequestFilter.getService(user, serviceName);
+
+		const process = keys => {
+			if (keys.length > 0) {
+				return entityManager.findOne(serviceName, keys.pop()).catch(() => process(keys));
+			} else {
+				return Promise.resolve(null);
 			}
-		}
+		};
+
+		return process(service.getKeys(obj)).then(foundObj => {
+			if (foundObj != null) {
+				const primaryKey = service.getPrimaryKey(foundObj);
+				return RequestFilter.processUpdate(user, primaryKey, entityManager, serviceName, obj, microService);
+			} else {
+				return RequestFilter.processCreate(user, entityManager, serviceName, obj, microService);
+			}
+		});
+	}
+	// private
+	static parseQueryParameters(tokenData, serviceName, queryParameters, onlyPrimaryKey) {
 		// se não for admin, limita os resultados para as rufsGroup vinculadas a empresa do usuário
 		const userRufsGroupOwner = tokenData.rufsGroupOwner;
 		const rufsGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroupOwner");
 		const rufsGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroup");
 
 		if (userRufsGroupOwner > 1) {
-			if (rufsGroupOwnerEntries.length > 0) queryFields[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
-			if (rufsGroupEntries.length > 0) queryFields[rufsGroupEntries[0].fieldName] = tokenData.groups;
+			if (rufsGroupOwnerEntries.length > 0) queryParameters[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
+			if (rufsGroupEntries.length > 0) queryParameters[rufsGroupEntries[0].fieldName] = tokenData.groups;
 		}
 
-		return queryFields;
+		const service = RequestFilter.getService(tokenData, serviceName);
+		const obj = service.copyFields(queryParameters);
+		let ret;
+
+		if (onlyPrimaryKey == true)
+			ret = service.getPrimaryKey(obj);
+		else
+			ret = obj;
+
+		return ret;
    	}
 	// public
-	static processQuery(tokenData, uriInfo, entityManager, serviceName) {
-		const fields = RequestFilter.parseQueryParameters(tokenData, serviceName, uriInfo.query);
+	static processQuery(tokenData, queryParams, entityManager, serviceName) {
+		const fields = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams);
 		let orderBy = [];
 		const service = RequestFilter.getService (tokenData, serviceName);
 
@@ -242,11 +256,11 @@ class RequestFilter {
 	}
 	// public
 	static checkAuthorization(tokenData, serviceName, uriPath) {
-		let access = null;
+		let access = false;
 		const serviceAuth = tokenData.roles[serviceName];
 		// verfica a permissao de acesso
 		if (serviceAuth != undefined) {
-			const defaultAccess = {query: true, read: true, create: true, update: false, delete: false};
+			const defaultAccess = {query: true, read: true, create: true, update: false, delete: false, patch: true};
 
 			if (serviceAuth[uriPath] != undefined) {
 				access = serviceAuth[uriPath];
@@ -255,7 +269,7 @@ class RequestFilter {
 			}
 		}
 
-		return access != null;
+		return access;
 	}
 	// public
 	static extractTokenPayload(authorizationHeader) {
@@ -284,10 +298,10 @@ class RequestFilter {
 				console.log(`[RequestFilter.processRequest] : using connection ${tokenData.dbConnInfo}`);
 			}
 
-			const uriInfo = req;
+			const queryParams = req.query;
 			let obj = null;
 
-			if (uriPath == "create" || uriPath == "update") {
+			if (uriPath == "create" || uriPath == "update" || uriPath == "patch") {
 				obj = req.body;
 			}
 
@@ -296,13 +310,15 @@ class RequestFilter {
 			if (uriPath == "create") {
 				cf = RequestFilter.processCreate(tokenData, entityManager, serviceName, obj, microService);
 			} else if (uriPath == "update") {
-				cf = RequestFilter.processUpdate(tokenData, uriInfo, entityManager, serviceName, obj, microService);
+				cf = RequestFilter.processUpdate(tokenData, queryParams, entityManager, serviceName, obj, microService);
+			} else if (uriPath == "patch") {
+				cf = RequestFilter.processPatch(tokenData, entityManager, serviceName, obj, microService);
 			} else if (uriPath == "delete") {
-				cf = RequestFilter.processDelete(tokenData, uriInfo, entityManager, serviceName, microService);
+				cf = RequestFilter.processDelete(tokenData, queryParams, entityManager, serviceName, microService);
 			} else if (uriPath == "read") {
-				cf = RequestFilter.processRead(tokenData, uriInfo, entityManager, serviceName, useDocument);
+				cf = RequestFilter.processRead(tokenData, queryParams, entityManager, serviceName, useDocument);
 			} else if (uriPath == "query") {
-				cf = RequestFilter.processQuery(tokenData, uriInfo, entityManager, serviceName);
+				cf = RequestFilter.processQuery(tokenData, queryParams, entityManager, serviceName);
 			} else {
 				return Promise.resolve(Response.internalServerError("unknow rote"));
 			}

@@ -102,6 +102,10 @@ class HttpRestRequest {
 		return this.request(path, "PUT", params, itemSend);
 	}
 
+	patch(path, itemSend) {
+		return this.request(path, "PATCH", null, itemSend);
+	}
+
 	remove(path, params) {
 		return this.request(path, "DELETE", params, null);
 	}
@@ -179,6 +183,10 @@ class RufsService extends DataStoreItem {
         });
 	}
 
+	patch(itemSend) {
+    	return this.httpRest.patch(this.pathRest + "/patch", this.copyFields(itemSend)).then(data => this.updateList(data));
+	}
+
 	removeInternal(primaryKey) {
 		const ret =  super.removeInternal(primaryKey);
 		for (let listener of this.remoteListeners) listener.onNotify(primaryKey, "delete");
@@ -191,7 +199,9 @@ class RufsService extends DataStoreItem {
 
 	queryRemote(params) {
         return this.httpRest.query(this.pathRest + "/query", params).then(list => {
-       		for (let [fieldName, field] of Object.entries(this.fields)) if (field.type.includes("date") || field.type.includes("time")) list.forEach(item => item[fieldName] = new Date(item[fieldName]));
+			for (let [fieldName, field] of Object.entries(this.fields))
+				if (field.type.includes("date") || field.type.includes("time"))
+					list.forEach(item => item[fieldName] = new Date(item[fieldName]));
         	this.list = list;
         	return list;
         });

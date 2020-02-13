@@ -35,6 +35,10 @@ class DbClientPostgres {
 		return this.client.connect();
 	}
 
+	disconnect() {
+		return this.client.end();
+	}
+
 	static buildQuery(fields, params, orderBy) {
 		var i = params.length + 1;
 		var str = "";
@@ -101,7 +105,7 @@ class DbClientPostgres {
 			return result.rows[0];
 		}).
 		catch(err => {
-			err.message = err.message + ` sql : ${sql}`;
+			err.message = err.message + ` sql : ${sql} : ${params}`;
 			throw err;
 		});
 	}
@@ -120,7 +124,7 @@ class DbClientPostgres {
 		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(fields, params);
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
-				throw new Error("NoResultException");
+				throw new Error(`NoResultException for ${tableName} : ${sql} : ${params}`);
 			}
 
 			return result.rows[0]

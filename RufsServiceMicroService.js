@@ -297,7 +297,7 @@ class RufsServiceDbSync {
             		service.fields = this.generateFieldsStr(name, tableInfo.fields, service.fields);
             		return this.entityManager.update("rufsService", {name}, service);
 	        	}).catch(err => {
-	        		if (err.message != "NoResultException") {
+	        		if (err.message.startsWith("NoResultException") == false) {
 		        		console.error(`RequestFilter.updateRufsServices.entityManager.getTablesInfo().entityManager.find(${name}) :`, err);
 		        		throw err;
 	        		}
@@ -434,7 +434,7 @@ class RufsServiceMicroService extends MicroServiceServer {
 		});
 	}
 
-	listen() {
+	sync() {
 		return this.entityManager.connect().
 		then(() => {
 			const entityManager = this.entityManager;
@@ -468,13 +468,21 @@ class RufsServiceMicroService extends MicroServiceServer {
 		then(() => {
 			console.log(`starting updateRufsServices...`);
 			return RequestFilter.updateRufsServices(this.entityManager).
-			then(() => console.log(`...finished updateRufsServices...`)).
-			then(() => super.listen());
+			then(() => console.log(`...finished updateRufsServices...`));
 		});
+	}
+
+	listen() {
+		return this.sync().then(() => super.listen());
 	}
 
 }
 
-RufsServiceMicroService.checkStandalone();
+if (MicroServiceServer.getArg("sync-and-exit") != undefined) {
+	const rufsServiceMicroService = new RufsServiceMicroService();
+	rufsServiceMicroService.sync().finally(() => rufsServiceMicroService.entityManager.disconnect());
+} else {
+	RufsServiceMicroService.checkStandalone();
+}
 
 export {RufsServiceMicroService};

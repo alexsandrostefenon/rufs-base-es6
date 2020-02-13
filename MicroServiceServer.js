@@ -17,13 +17,17 @@ class MicroServiceServer {
 
 	static getArg(name, defaultValue) {
 		let value = defaultValue;
+		let base = "--" + name;
+		let baseAndValue = base + "=";
 
 		for (let arg of process.argv) {
-			let tmp = "--" + name + "=";
+			if (arg == base) {
+				value = "";
+				break;
+			}
 
-			if (arg.startsWith(tmp)) {
-				value = arg.substring(tmp.length);
-				console.log(name, value);
+			if (arg.startsWith(baseAndValue)) {
+				value = arg.substring(baseAndValue.length);
 				break;
 			}
 		}
@@ -108,11 +112,7 @@ class MicroServiceServer {
 			}
 		}
 
-		console.log("RemoteAddr : ", req.ip);
-		console.log("method : ", req.method);
-		console.log("resource : ", resource);
-		console.log("action : ", action);
-		console.log("path : ", req.path);
+		console.log(`curl -X '${req.method}' ${req.originalUrl} -d '${JSON.stringify(req.body)}'`);
 
 		res.header("Access-Control-Allow-Origin", "*");
 		res.header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS, POST, DELETE");

@@ -27,9 +27,18 @@ class RufsSchema {
 				}
 			}
 		}
-		
+		// primary key
 		this.primaryKeys = [];
 		for (let [fieldName, field] of Object.entries(this.fields)) if (field.primaryKey == true) this.primaryKeys.push(fieldName);
+		// unique keys
+		this.uniqueKeyMap = new Map();
+
+		for (let [fieldName, field] of Object.entries(this.fields)) {
+			if (field.unique != undefined) {
+				if (this.uniqueKeyMap.has(field.unique) == false) this.uniqueKeyMap.set(field.unique, []);
+				this.uniqueKeyMap.get(field.unique).push(fieldName);
+			}
+		}
 	}
 	
 	checkPrimaryKey(obj) {
@@ -44,52 +53,98 @@ class RufsSchema {
 
 		return check;
 	}
-
-	getPrimaryKey(obj) {
-		let primaryKey = {};
-
-		for (var fieldName of this.primaryKeys) {
-			primaryKey[fieldName] = obj[fieldName];
-		}
-
-		return primaryKey;
-	}
-
-	getPrimaryKeyFromForeignData(dataForeign, fieldNameForeign, fieldName) {
-		let primaryKey = this.getPrimaryKey(dataForeign);
-
-		if (fieldName != undefined && fieldName != null) {
-			primaryKey[fieldName] = dataForeign[fieldNameForeign];
-		} else if (this.primaryKeys.indexOf(fieldNameForeign) < 0 && this.primaryKeys.indexOf("id") >= 0) {
-			primaryKey["id"] = dataForeign[fieldNameForeign];
-		}
-
-		return primaryKey;
-	}
-
+	// public
 	copyFields(dataIn) {
-		var dataOut = {};
+		const ret = {};
 
-		for (let fieldName in this.fields) {
-			let field = this.fields[fieldName];
-			let value = dataIn[fieldName];
-			
-			if (field.type == "i" && (typeof value) === "string") {
-				dataOut[fieldName] = Number.parseInt(value);
-			} else {
-				dataOut[fieldName] = value;
+		for (let [fieldName, field] of Object.entries(this.fields)) {
+			const value = dataIn[fieldName];
+
+			if (value != undefined) {
+				const type = field["type"];
+				
+				if (type == undefined || type == "s") {
+					ret[fieldName] = value;
+				} else if (type == "n" || type == "i") {
+					if (isNaN(value) == true) {
+						ret[fieldName] = new Number(value).valueOf();
+					} else {
+						ret[fieldName] = value;
+					}
+				} else if (type == "b") {
+					if (value == true)
+						ret[fieldName] = true;
+					else if (value == false)
+						ret[fieldName] = false;
+					else
+						ret[fieldName] = (value == "true");
+				} else if (type == "date" || type == "datetime-local") {
+					ret[fieldName] = new Date(value);
+				} else {
+					ret[fieldName] = value;
+				}
 			}
 		}
 
-		return dataOut;
+		return ret;
+	}
+	// private, projected for extract primaryKey and uniqueKeys
+	static copyFieldsFromList(dataIn, fieldNames, retutnNullIfAnyEmpty) {
+		let ret = {};
+
+		for (let fieldName of fieldNames) {
+			if (dataIn[fieldName] != undefined) {
+				ret[fieldName] = dataIn[fieldName];
+			} else {
+				if (retutnNullIfAnyEmpty == true) {
+					ret = null;
+					break;
+				}
+			}
+		}
+
+		return ret;
+	}
+
+	getPrimaryKey(obj) {
+		return RufsSchema.copyFieldsFromList(obj, this.primaryKeys, true);
+	}
+	// public, return primary and uniqueKeys if present in obj
+	getKeys(obj) {
+		const ret = [];
+		// first, primary key
+		{
+			const primaryKey = this.getPrimaryKey(obj);
+			if (primaryKey != null) ret.push(primaryKey);
+		}
+		// unique keys
+		for (let fieldNames of this.uniqueKeyMap.values()) {
+			let key = RufsSchema.copyFieldsFromList(obj, fieldNames, true);
+			if (key != null) ret.push(key);
+		}
+
+		return ret;
+	}
+
+	getPrimaryKeyFromForeignData(dataForeign, fieldNameForeign, fieldName) {
+		let primaryKey = RufsSchema.copyFieldsFromList(dataForeign, this.primaryKeys, false);
+
+		if (primaryKey != null) {
+			if (fieldName != undefined && fieldName != null) {
+				primaryKey[fieldName] = dataForeign[fieldNameForeign];
+			} else if (this.primaryKeys.indexOf(fieldNameForeign) < 0 && this.primaryKeys.indexOf("id") >= 0) {
+				primaryKey["id"] = dataForeign[fieldNameForeign];
+			}
+		} else {
+			console.error(`[RufsSchema.getPrimaryKeyFromForeignData()] : ${this.name} : don't find primary key for ${dataForeign}`);
+		}
+
+		return primaryKey;
 	}
 	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
 	// field.foreignKeysImport: {table: "request", field: "rufsGroupOwner"}
 	// foreignKey = {rufsGroupOwner: 2, request: 1}
 	static getForeignKeyFromPrimaryKeyForeign(service, primaryKeyForeign, fieldName) {
-		const field = service.fields[fieldName];
-		service.primaryKeys = [];
-		for (let [fieldName, field] of Object.entries(service.fields)) if (field.primaryKey == true) service.primaryKeys.push(fieldName);
 		const foreignKey = {};
 		
 		for (let fieldNameOfPrimaryKeyForeign in primaryKeyForeign) {
@@ -98,6 +153,8 @@ class RufsSchema {
 			}
 		}
 		
+		const field = service.fields[fieldName];
+
 		if (field.foreignKeysImport != undefined) {
 			foreignKey[fieldName] = primaryKeyForeign[field.foreignKeysImport.field];
 		} else if (primaryKeyForeign[fieldName] != undefined) {
@@ -179,9 +236,22 @@ class DataStore extends RufsSchema {
 	// private, use in getRemote, save, update and remove
 	updateList(data, oldPos, newPos) {
         if (oldPos == undefined && newPos == undefined) {
-        	// add
-			this.list.push(data);
-			newPos = this.list.length - 1;
+			let primaryKey = this.getPrimaryKey(data);
+			let pos = -1;
+
+			if (Object.entries(primaryKey).length > 0) {
+				pos = this.findPos(primaryKey);
+			}
+
+			if (pos >= 0) {
+				oldPos = newPos = pos;
+				// replace
+				this.list[oldPos] = data;
+			} else {
+				// add
+				this.list.push(data);
+				newPos = this.list.length - 1;
+			}
         } else if (oldPos != undefined && newPos == undefined) {
         	// remove
         	this.list.splice(oldPos, 1);
@@ -332,7 +402,8 @@ class DataStoreItem extends DataStore {
 			if (pos >= 0) {
 				stringBuffer.push(service.listStr[pos]);
 			} else {
-				console.error(`this.buildField : don't find itemStr from service ${service.name} from primaryKey : `, primaryKey, field);
+				console.error(`[dataStoreItem.buildField] don't find item from service ${service.name} with primaryKey : `, primaryKey);
+				console.error(`item : ${item}, fieldName : ${fieldName}, field.foreignKeysImport.field : ${field.foreignKeysImport.field}`);
 //				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
 			}
 		} else if (fieldName == "id") {
