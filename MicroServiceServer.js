@@ -132,11 +132,15 @@ class MicroServiceServer {
 	}
 	// remove the session after it's closed
 	onWsCloseFromClient(session) {
-		const tokenPayload = session.token;
+		if (session && session.token && session.token.tokenPayload && session.token.tokenPayload.name) {
+			const tokenPayload = session.token;
 
-		if (this.wsServerConnections.get(tokenPayload.name) != null) {
-			console.log("Websoket session closed:", this.config.appName, tokenPayload.name);
-			this.wsServerConnections.delete(tokenPayload.name);
+			if (this.wsServerConnections.get(tokenPayload.name) != null) {
+				console.log("Websoket session closed:", this.config.appName, tokenPayload.name);
+				this.wsServerConnections.delete(tokenPayload.name);
+			}
+		} else {
+			console.error("[microServiceServer.onWsCloseFromClient] Ivalid session : ", session);
 		}
 	}
 
