@@ -2,15 +2,12 @@ import jwt from "jsonwebtoken";
 import {Filter} from "./webapp/es6/DataStore.js";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 import {Response} from "./server-utils.js";
-import {MicroServiceServer} from "./MicroServiceServer.js";
+import {RufsMicroService} from "./RufsMicroService.js";
 import {RequestFilter} from "./RequestFilter.js";
 
-class AuthenticationMicroService extends MicroServiceServer {
+class AuthenticationMicroService extends RufsMicroService {
 	constructor(config) {
-		if (config == undefined) config = {};
-		config.appName = "authc";
-		super(config);
-		this.entityManager = new DbClientPostgres(this.config.dbConfig);
+		super(config, "authc");
 		this.listUser = [];
 	}
 	// Load rufsGroupOwner, Services and Groups
@@ -45,7 +42,7 @@ class AuthenticationMicroService extends MicroServiceServer {
     }
 	// return a promise
 	onRequest(req, res, next, resource, action) {
-		let promise = super.onRequest(req, res, next, resource, action);//Promise.reject(Response.unauthorized("Unknow Route"));
+		let promise;
 
 		if (resource == "login") {
 			let user = Filter.findOne(this.listUser, {"name": req.body.userId});
@@ -58,17 +55,17 @@ class AuthenticationMicroService extends MicroServiceServer {
 			} else {
 				promise = Promise.resolve(Response.unauthorized("Don't match user and password."));
 			}
+		} else {
+			promise = super.onRequest(req, res, next, resource, action);
 		}
 		
 		return promise;
 	}
 
 	listen() {
-		return this.entityManager.connect().
-		then(() => RequestFilter.updateRufsServices(this.entityManager)).
+		return super.listen().
         then(() => RequestFilter.loadTable(this.entityManager, "rufsUser")).
-        then(rows => this.listUser = rows).
-		then(() => super.listen());
+        then(rows => this.listUser = rows);
 	}
 }
 

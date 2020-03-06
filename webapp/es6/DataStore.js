@@ -8,24 +8,12 @@ class RufsSchema {
 		this.shortDescriptionList = [];
 		
 		for (let [fieldName, field] of entries) {
-			if (field.type == undefined) field.type = "s";
+			if (field.type == undefined) field.type = "string";
 			if (field.orderIndex == undefined) field.orderIndex = entries.length;
 			if (field.tableVisible == undefined) field.tableVisible = true;
 			if (field.hiden == true) field.tableVisible = false;
-			if (field.shortDescription == undefined && fieldName == "name") field.shortDescription = true;
 			if (field.shortDescription == undefined) field.shortDescription = false;
 			if (field.shortDescription == true) this.shortDescriptionList.push(fieldName);
-		}
-
-		if (this.shortDescriptionList.length == 0) {
-			let count = 0;
-
-			for (let [fieldName, field] of entries) {
-				if (field.tableVisible == true) {
-					this.shortDescriptionList.push(fieldName);
-					if (++count >= 5) break;
-				}
-			}
 		}
 		// primary key
 		this.primaryKeys = [];
@@ -37,6 +25,27 @@ class RufsSchema {
 			if (field.unique != undefined) {
 				if (this.uniqueKeyMap.has(field.unique) == false) this.uniqueKeyMap.set(field.unique, []);
 				this.uniqueKeyMap.get(field.unique).push(fieldName);
+			}
+		}
+		// Se não foi definido manualmente o shortDescriptionList, monta em modo automático usando os uniqueMaps
+		if (this.shortDescriptionList.length == 0) {
+			if (this.primaryKeys.find(fieldName => this.fields[fieldName].tableVisible == false) == undefined) {
+				Array.prototype.push.apply(this.shortDescriptionList, this.primaryKeys);
+			}
+
+			for (let [name, list] of this.uniqueKeyMap) {
+				if (list.find(fieldName => this.fields[fieldName].tableVisible == false) == undefined) {
+					for (let fieldName of list) if (this.shortDescriptionList.includes(fieldName) == false) this.shortDescriptionList.push(fieldName);
+					if (this.shortDescriptionList.length > 3) break;
+				}
+			}
+
+			for (let [fieldName, field] of entries) {
+				if (this.shortDescriptionList.length > 3) break;
+				
+				if (field.tableVisible == true && this.shortDescriptionList.includes(fieldName) == false) {
+					this.shortDescriptionList.push(fieldName);
+				}
 			}
 		}
 	}
@@ -63,15 +72,15 @@ class RufsSchema {
 			if (value != undefined) {
 				const type = field["type"];
 				
-				if (type == undefined || type == "s") {
+				if (type == undefined || type == "string") {
 					ret[fieldName] = value;
-				} else if (type == "n" || type == "i") {
+				} else if (type == "number" || type == "integer") {
 					if (isNaN(value) == true) {
 						ret[fieldName] = new Number(value).valueOf();
 					} else {
 						ret[fieldName] = value;
 					}
-				} else if (type == "b") {
+				} else if (type == "boolean") {
 					if (value == true)
 						ret[fieldName] = true;
 					else if (value == false)
@@ -340,16 +349,16 @@ class DataStoreItem extends DataStore {
 		let getDefaultValue = field => {
 			let value;
 
-			if (field.defaultValue != undefined) {
-				if (field.type == "i") {
-					value = Number.parseInt(field.defaultValue);
-				} else if (field.type == "n") {
-					value = Number.parseFloat(field.defaultValue);
+			if (field.default != undefined) {
+				if (field.type == "integer") {
+					value = Number.parseInt(field.default);
+				} else if (field.type == "number") {
+					value = Number.parseFloat(field.default);
 				} else if (field.type.includes("date") || field.type.includes("time")) {
 					value = new Date();
 					value.setMilliseconds(0);
 				} else {
-					value = field.defaultValue;
+					value = field.default;
 				}
 			} else {
 				value = undefined;
@@ -362,7 +371,7 @@ class DataStoreItem extends DataStore {
 			obj = {};
 		}
 
-		for (let [fieldName, field] of Object.entries(this.fields)) if (obj[fieldName] == undefined && field.defaultValue != undefined) obj[fieldName] = getDefaultValue(field);
+		for (let [fieldName, field] of Object.entries(this.fields)) if (obj[fieldName] == undefined && field.default != undefined) obj[fieldName] = getDefaultValue(field);
 
 		for (let fieldName in this.fields) this.setValue(fieldName, obj);
 	}
@@ -534,9 +543,9 @@ class DataStoreItem extends DataStore {
 					if (valA != valB) {
 						if (valB == undefined) ret = -1;
 						else if (valA == undefined) ret = +1;
-						else if (field.type == "i" || field.type == "n") ret = valA - valB;
-						else if (field.type == "s") ret = valA.localeCompare(valB);
-						else if (field.type == "b") ret = valA - valB;
+						else if (field.type == "integer" || field.type == "number") ret = valA - valB;
+						else if (field.type == "string") ret = valA.localeCompare(valB);
+						else if (field.type == "boolean") ret = valA - valB;
 						else if (field.type.includes("date") == true || field.type.includes("time") == true) ret = valA.valueOf() - valB.valueOf();
 						if (field.sortType == "desc") ret *= -1;
 						if (ret != 0) break;

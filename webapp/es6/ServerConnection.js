@@ -286,7 +286,7 @@ class ServerConnection {
 					if (params.access.delete == undefined) params.access.delete = false;
 					let service = new RufsServiceClass(this, params, this.httpRest);
 					if (service.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) service.fields.rufsGroupOwner.hiden = true;
-					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.defaultValue == undefined) service.fields.rufsGroupOwner.defaultValue = this.user.rufsGroupOwner;
+					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.default == undefined) service.fields.rufsGroupOwner.default = this.user.rufsGroupOwner;
 					this.services[service.name] = service;
 
 					if (service.isOnLine != true && service.params.access.query == true) {

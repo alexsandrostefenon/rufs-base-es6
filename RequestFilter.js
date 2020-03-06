@@ -398,10 +398,11 @@ class RequestFilter {
 		return entityManager.find(name).catch(() => fsPromises.readFile(name + ".json").then(data => JSON.parse(data)));
 	}
 
-	static updateRufsServices(entityManager) {
-        return RequestFilter.loadTable(entityManager, "rufsService").then(rows => {
-        	RequestFilter.listService = [];
-        	for (let row of rows) RequestFilter.listService.push(new RufsSchema(row.name, row.fields));
+	static updateRufsServices(entityManager, openapi) {
+        return Promise.resolve().then(() => {
+			RequestFilter.listService = [];
+			// TODO : trocar openapi.definitions por openapi.paths
+        	for (let name in openapi.definitions) RequestFilter.listService.push(new RufsSchema(name, openapi.definitions[name].properties));
         }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupUser")).then(rows => {
             RequestFilter.listGroupUser = rows;
         }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupOwner")).then(rows => {

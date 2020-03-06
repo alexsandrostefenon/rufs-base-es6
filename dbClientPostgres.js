@@ -17,18 +17,20 @@ class DbClientPostgres {
 		  idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
 		};
 
-		if (dbConfig.host != undefined) this.dbConfig.host = dbConfig.host;
-		if (dbConfig.port != undefined) this.dbConfig.port = dbConfig.port;
-		if (dbConfig.database != undefined) this.dbConfig.database = dbConfig.database;
-		if (dbConfig.user != undefined) this.dbConfig.user = dbConfig.user;
-		if (dbConfig.password != undefined) this.dbConfig.password = dbConfig.password;
-		// const connectionString = 'postgresql://dbuser:secretpassword@database.server.com:3211/mydb'
-		if (dbConfig.connectionString != undefined) this.dbConfig.connectionString = dbConfig.connectionString;
+		if (dbConfig != undefined) {
+			if (dbConfig.host != undefined) this.dbConfig.host = dbConfig.host;
+			if (dbConfig.port != undefined) this.dbConfig.port = dbConfig.port;
+			if (dbConfig.database != undefined) this.dbConfig.database = dbConfig.database;
+			if (dbConfig.user != undefined) this.dbConfig.user = dbConfig.user;
+			if (dbConfig.password != undefined) this.dbConfig.password = dbConfig.password;
+			// const connectionString = 'postgresql://dbuser:secretpassword@database.server.com:3211/mydb'
+			if (dbConfig.connectionString != undefined) this.dbConfig.connectionString = dbConfig.connectionString;
+		}
 		//connect to our database
 		//env var: PGHOST,PGPORT,PGDATABASE,PGUSER,PGPASSWORD
 		this.client = new pg.Client(this.dbConfig);
-		this.sqlTypes        = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint", "smallint", "text", "date", "double precision", "bytea"];
-		this.rufsTypes       = ["b"      ,"s"                ,"s"        ,"i"      ,"json" , "n"      , "datetime-local"      ,        "datetime-local"          , "datetime-local"        , "i"     , "i"       , "s"   , "date", "n"               , "s"];
+		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date", "double precision", "bytea"];
+		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "numeric", "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "date", "numeric"         , "string"];
 	}
 
 	connect() {
@@ -113,7 +115,7 @@ class DbClientPostgres {
 	find(tableName, fields, orderBy) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
 		const params = [];
-		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(fields, params, orderBy) + " LIMIT 2500";
+		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(fields, params, orderBy) + " LIMIT 10000";
 //		console.log(sql);
 		return this.client.query(sql, params).then(result => result.rows);
 	}
@@ -233,8 +235,8 @@ class DbClientPostgres {
 						const entityClass = mapTables.get(tableName);
 						const fieldName = CaseConvert.underscoreToCamel(rec.columnName, false);
 						
-						if (entityClass.fields.has(fieldName) == true) {
-							const field = entityClass.fields.get(fieldName);
+						if (entityClass.properties.has(fieldName) == true) {
+							const field = entityClass.properties.get(fieldName);
 							// select table_name,column_name,constraint_name from information_schema.constraint_column_usage order by table_name,column_name,constraint_name;
 							if (rec.constraintName.endsWith("_pkey") || rec.constraintName.endsWith("_pk")) {
 								field.primaryKey = true; // true,false
@@ -287,7 +289,7 @@ class DbClientPostgres {
 							entityClass = mapTables.get(tableName);
 						} else {
 							entityClass = {};
-							entityClass.fields = new Map();
+							entityClass.properties = new Map();
 							mapTables.set(tableName, entityClass);
 						}
 
@@ -301,24 +303,24 @@ class DbClientPostgres {
 						field.scale = rec.numericScale; // > 0 // 3,2,1
 						field.length = rec.characterMaximumLength; // > 0 // 255
 						field.precision = rec.numericPrecision; // > 0
-						field.defaultValue = rec.columnDefault; // 'pt-br'::character varying
-						field.comment = rec.description;
+						field.default = rec.columnDefault; // 'pt-br'::character varying
+						field.description = rec.description;
 						// adjusts
-						if (field.type == "n" && field.scale == 0) field.type = "i";
+						if (field.type == "numeric" && field.scale == 0) field.type = "integer";
 
-						if (field.defaultValue != undefined && field.defaultValue[0] == "'" && field.defaultValue.length > 2) {
-							if (field.type == "s") {
-								field.defaultValue = field.defaultValue.substring(1, field.defaultValue.indexOf("'", 1));
+						if (field.default != undefined && field.default[0] == "'" && field.default.length > 2) {
+							if (field.type == "string") {
+								field.default = field.default.substring(1, field.default.indexOf("'", 1));
 							} else {
-								field.defaultValue = undefined;
+								field.default = undefined;
 							}
 						}
 
-						if ((field.type == "i" || field.type == "n") && isNaN(field.defaultValue) == true) field.defaultValue = undefined;
+						if ((field.type == "integer" || field.type == "numeric") && isNaN(field.default) == true) field.default = undefined;
 						field.identityGeneration = rec.identityGeneration; // BY DEFAULT,ALWAYS
 						// SERIAL TYPE
-						if (rec.defaultValue != undefined && rec.defaultValue.startsWith("nextval")) field.identityGeneration = "BY DEFAULT";
-						entityClass.fields.set(fieldName, field);
+						if (rec.default != undefined && rec.default.startsWith("nextval")) field.identityGeneration = "BY DEFAULT";
+						entityClass.properties.set(fieldName, field);
 					} else {
 						console.error(`DbClientPostgres.getTablesInfo().processColumns() : Invalid Database Type : ${rec.dataType}, full rec : ${JSON.stringify(rec)}`);
 					}
