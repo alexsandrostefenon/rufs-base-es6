@@ -3,6 +3,7 @@ import {DbClientPostgres} from "./dbClientPostgres.js";
 import {RequestFilter} from "./RequestFilter.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
+import {FileDbAdapter} from "./FileDbAdapter.js";
 
 const fsPromises = fs.promises;
 
@@ -54,7 +55,9 @@ class RufsServiceDbSync {
 		let fieldOut = CaseConvert.camelToUnderscore(field.foreignKeysImport.field);
 		let str = "";
 //		console.log(`RufsServiceDbSync.genSqlForeignKey(${fieldName}) : field.foreignKeysImport.table : ${field.foreignKeysImport.table}, mapTables[field.foreignKeysImport.table] : ${mapTables[field.foreignKeysImport.table]}`);
-		if (tableOut != "rufs_group_owner" && mapTables.get(field.foreignKeysImport.table).rufsGroupOwner != undefined) {
+		const foreignSchema = mapTables.definitions[field.foreignKeysImport.table];
+
+		if (tableOut != "rufs_group_owner" && foreignSchema != undefined && foreignSchema.rufsGroupOwner != undefined) {
 			str = `FOREIGN KEY(rufs_group_owner,${fieldName}) REFERENCES ${tableOut}(rufs_group_owner, ${fieldOut})`;
 		} else {
 			str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}(${fieldOut})`;
@@ -63,9 +66,11 @@ class RufsServiceDbSync {
 		return str;
 	}
 
-	createTable(name, fields) {
+	createTable(name, schema) {
+		if (schema == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${schema}) : schema : Invalid Argument Exception`);
+		if (typeof(schema) == "string") schema = JSON.parse(schema);
+		const fields = schema.properties;
 		if (fields == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${fields}) : fields : Invalid Argument Exception`);
-		if (typeof(fields) == "string") fields = JSON.parse(fields);
 
 		const genSql = mapTables => {
 			let tableBody = "";
@@ -97,7 +102,7 @@ class RufsServiceDbSync {
 			return sql;
 		};
 		
-		return this.entityManager.getTablesInfo().then(mapTables => genSql(mapTables)).then(sql => this.entityManager.client.query(sql));
+		return this.entityManager.getOpenApi().then(mapTables => genSql(mapTables)).then(sql => this.entityManager.client.query(sql));
 	}
 
 	alterTable(name, newFields, oldFields) {
@@ -125,8 +130,8 @@ class RufsServiceDbSync {
 			return sql;
 		};
 		
-		return this.entityManager.getTablesInfo().
-		then(mapTables => genSql(mapTables)).
+		return this.entityManager.getOpenApi().
+		then(openApi => genSql(openApi)).
 		then(sql => {
 			if (sql != null) {
 				return this.entityManager.client.query(sql).catch(err => {
@@ -146,39 +151,14 @@ class RufsServiceDbSync {
 
 }
 
-let tablesRufs = {
-	rufsGroupOwner: {
-		id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-		name: {notNull: true, unique:true}
-	},
-	rufsUser: {
-		id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-		rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: {table: "rufsGroupOwner", field: "id"}},
-		name: {length: 32, notNull: true, unique:true},
-		password: {notNull: true},
-		roles: {length: 10240},
-		routes: {length: 10240},
-		path: {},
-		menu: {length: 10240},
-		showSystemMenu: {type: "boolean", defaultValue: false},
-		authctoken: {}
-	},
-	rufsGroup: {
-		id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-		name: {notNull: true, unique:true}
-	},
-	rufsGroupUser: {
-		rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: {table: "rufsUser", field: "id"}},
-		rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: {table: "rufsGroup", field: "id"}}
-	}
-};
-
 class RufsMicroService extends MicroServiceServer {
 
-	constructor(config, appName) {
+	constructor(config, appName, checkRufsTables) {
 		if (config == undefined) config = {};
-		config.appName = appName || "rufs";
+		config.appName = appName || "base";
 		super(config);
+		this.config.checkRufsTables = checkRufsTables || false;
+		this.config.migrationPath = config.migrationPath || MicroServiceServer.getArg("migration-path", `./rufs-${config.appName}-es6/sql`);
 		this.entityManager = new DbClientPostgres(this.config.dbConfig);
 	}
 
@@ -186,73 +166,203 @@ class RufsMicroService extends MicroServiceServer {
 		return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
 	}
 
-	static syncDb(entityManager) {
-		return entityManager.getTablesInfo().
-		then(tablesExistents => {
-			let tablesMissing = new Map();
-			for (let tableName in tablesRufs) if (tablesExistents.has(tableName) == false) tablesMissing.set(tableName, tablesRufs[tableName]);
-			const rufsServiceDbSync = new RufsServiceDbSync(entityManager);
-
-			const createTable = iterator => {
-				let it = iterator.next();
-				if (it.done == true) return Promise.resolve();
-				let [name, fields] = it.value;
-				console.log(`[${this.constructor.name}].setup.getTablesInfo().createTable(${name})`, fields);
-				return rufsServiceDbSync.createTable(name, fields).then(() => createTable(iterator));
-			};
-
-			const userAdmin = {
-				name: "admin", rufsGroupOwner: 1, password: "admin", path: "rufs_user/search", showSystemMenu: true,
-				roles: '{"rufsGroupOwner":{"create":true,"update":true,"delete":true},"rufsUser":{"create":true,"update":true,"delete":true},"rufsGroup":{"create":true,"update":true,"delete":true},"rufsGroupUser":{"create":true,"update":true,"delete":true},"rufsTranslation":{"create":true,"update":true,"delete":true}}',
-				routes: '[{"path": "/app/rufs_service/:action", "controller": "RufsServiceController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
-			};
-
-			return createTable(tablesMissing.entries()).
-			then(() => {
-				return entityManager.getTablesInfo().then(map => {
-					return this.loadOpenApi().then(openapi => {
-						if (openapi.definitions == undefined) openapi.definitions = {};
-						
-						for (let [name, schemaDb] of map) {
-							if (openapi.definitions[name] == undefined) openapi.definitions[name] = {};
-							if (openapi.definitions[name].properties == undefined) openapi.definitions[name].properties = {};
-							openapi.definitions[name] = this.updateJsonSchema(name, schemaDb, openapi.definitions[name]);
-						}
-
-						return this.storeOpenApi(openapi);
-					});
-				});
-			}).
-			then(openapi => {
-				return Promise.resolve().
-				then(() => entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => entityManager.insert("rufsGroupOwner", {name: "ADMIN"}))).
-				then(() => entityManager.findOne("rufsUser", {name: "admin"}).catch(() => entityManager.insert("rufsUser", userAdmin))).
-				then(() => entityManager.find("rufsGroupOwner")).then(rows => fsPromises.writeFile("rufsGroupOwner.json", JSON.stringify(rows, null, "\t"))).
-				then(() => entityManager.find("rufsUser")).then(rows => fsPromises.writeFile("rufsUser.json", JSON.stringify(rows, null, "\t"))).
-				then(() => entityManager.find("rufsGroupUser")).then(rows => fsPromises.writeFile("rufsGroupUser.json", JSON.stringify(rows, null, "\t"))).
-				then(() => openapi);
+	loadRufsTables() {
+		const loadTable = (name, defaultRows) => {
+			return this.entityManager.
+			find(name).
+			catch(() => {
+				console.log(`[${this.constructor.name}.loadRufsTables.loadTable(${name})] : loading fileDbAdapter data.`);
+				return this.fileDbAdapter.load(name).
+				then(rows => rows.length == 0 && defaultRows && defaultRows.length > 0 ? this.fileDbAdapter.store(name, defaultRows) : rows).catch(() => this.fileDbAdapter.store(name, defaultRows));
 			});
-		});
+		}
+
+		return this.constructor.loadOpenApi().
+		then(openapi => this.fileDbAdapter = new FileDbAdapter(openapi)).
+		then(() => loadTable("rufsGroup", [])).
+		then(rows => this.listGroup= rows).
+		then(() => loadTable("rufsGroupUser", [])).
+		then(rows => this.listGroupUser = rows).
+		then(() => loadTable("rufsGroupOwner", [RufsMicroService.defaultGroupOwnerAdmin])).
+		then(rows => this.listGroupOwner = rows).
+		then(() => loadTable("rufsUser", [RufsMicroService.defaultUserAdmin])).
+		then(rows => this.listUser = rows);
+	}
+
+	expressEndPoint(req, res, next) {
+		let promise;
+
+		if (this.fileDbAdapter == undefined) {
+			promise = this.loadRufsTables();
+		} else {
+			promise = Promise.resolve();
+		}
+
+		return promise.then(() => super.expressEndPoint(req, res, next));
 	}
 
 	listen() {
-		console.log(`[${this.constructor.name}] starting RufsMicroService ${this.config.appName}...`);
+		const createRufsTables = () => {
+			if (this.config.checkRufsTables != true)
+				return Promise.resolve();
+
+			return this.entityManager.getOpenApi().
+			then(openapi => {
+				let tablesMissing = new Map();
+				for (let name in RufsMicroService.tablesRufs) if (openapi.definitions[name] == undefined) tablesMissing.set(name, RufsMicroService.tablesRufs[name]);
+				const rufsServiceDbSync = new RufsServiceDbSync(this.entityManager);
+
+				const createTable = iterator => {
+					let it = iterator.next();
+					if (it.done == true) return Promise.resolve();
+					let [name, schema] = it.value;
+					return rufsServiceDbSync.createTable(name, schema).then(() => createTable(iterator));
+				};
+
+				return createTable(tablesMissing.entries());
+			}).
+			then(() => {
+				return Promise.resolve().
+				then(() => this.entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => this.entityManager.insert("rufsGroupOwner", RufsMicroService.defaultGroupOwnerAdmin))).
+				then(() => this.entityManager.findOne("rufsUser", {name: "admin"}).catch(() => this.entityManager.insert("rufsUser", RufsMicroService.defaultUserAdmin))).
+				then(() => Promise.resolve());
+			});
+		}
+
+		const syncDb2OpenApi = () => {
+			const execMigrations = () => {
+				if (fs.existsSync(this.config.migrationPath) == false)
+					return Promise.resolve();
+
+				const regExp = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})/;
+
+				const getVersion = name => {
+					const groups = regExp.exec(name);
+
+					if (groups == null)
+						return 0;
+
+					return BigInt(groups[1]) * 1000n * 1000n + BigInt(groups[2]) * 1000n + BigInt(groups[3]);
+				};
+
+				const migrate = (openapi, list) => {
+					if (list.length == 0)
+						return Promise.resolve(openapi);
+
+					const fileName = list.shift();
+					return fsPromises.readFile(`${this.config.migrationPath}/${fileName}`, "utf8").
+					then(text => {
+						const execSql = list => {
+							if (list.length == 0) return Promise.resolve();
+							const sql = list.shift();
+							return this.entityManager.client.query(sql).
+							catch(err => {
+								console.error(`[${this.constructor.name}.listen.syncDb2OpenApi.execMigrations.migrate(${fileName}).execSql] :\n${sql}\n${err.message}`);
+								throw err;
+							}).
+							then(() => execSql(list));
+						};
+
+						const list = text.split("--split");
+						return execSql(list);
+					}).
+					then(() => {
+						let newVersion = getVersion(fileName);
+						const v3 = newVersion % 1000n;
+						newVersion /= 1000n;
+						const v2 = newVersion % 1000n;
+						newVersion /= 1000n;
+						openapi.info.version = `${newVersion}.${v2}.${v3}`;
+						return this.constructor.storeOpenApi(openapi);
+					}).
+					then(() => migrate(openapi, list));
+				};
+
+				return this.constructor.loadOpenApi().
+				then(openapi => {
+					const oldVersion = getVersion(openapi.info.version);
+					return fsPromises.readdir(`${this.config.migrationPath}`).
+					then(list => list.filter(fileName => getVersion(fileName) > oldVersion)).
+					then(list => list.sort((a, b) => getVersion(a) - getVersion(b))).
+					then(list => migrate(openapi, list));
+				});
+			};
+
+			return execMigrations().
+			then(() => this.entityManager.getOpenApi()).
+			then(openApiDb => {
+				return this.constructor.loadOpenApi().
+				then(openapi => {
+					for (let name in RufsMicroService.tablesRufs) if (openApiDb.definitions[name] == undefined) openApiDb.definitions[name] = RufsMicroService.tablesRufs[name];
+
+					for (let [name, schemaDb] of Object.entries(openApiDb.definitions)) {
+						openapi.definitions[name] = this.constructor.updateJsonSchema(name, schemaDb, openapi.definitions[name]);
+					}
+
+					return this.constructor.storeOpenApi(openapi);
+				});
+			});
+		}
+
+		console.log(`[${this.constructor.name}] starting ${this.config.appName}...`);
 		return this.entityManager.connect().
-		then(() => this.constructor.syncDb(this.entityManager)).
+		then(() => createRufsTables()).
+		then(() => syncDb2OpenApi()).
 		then(openapi => {
-			return RequestFilter.updateRufsServices(this.entityManager, openapi).
+			return Promise.resolve().
+			then(() => RequestFilter.updateRufsServices(this.entityManager, openapi)).
 			then(() => super.listen()).
-			then(() => console.log(`[${this.constructor.name}] ...RufsMicroService ${this.config.appName} started.`));
+			then(() => console.log(`[${this.constructor.name}] ... ${this.config.appName} started.`));
 		});
 	}
 
 }
 
-if (MicroServiceServer.getArg("sync-and-exit") != undefined) {
-	const entityManager = new DbClientPostgres();
-	entityManager.connect().then(() => RufsMicroService.syncDb(entityManager).finally(() => entityManager.disconnect()));
-} else {
-	RufsMicroService.checkStandalone();
-}
+RufsMicroService.tablesRufs = {
+	rufsGroupOwner: {
+		properties: {
+			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
+			name: {notNull: true, unique:true}
+		}
+	},
+	rufsUser: {
+		properties: {
+			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
+			rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: {table: "rufsGroupOwner", field: "id"}},
+			name: {length: 32, notNull: true, unique:true},
+			password: {notNull: true},
+			roles: {length: 10240},
+			routes: {length: 10240},
+			path: {},
+			menu: {length: 10240}
+		}
+	},
+	rufsGroup: {
+		properties: {
+			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
+			name: {notNull: true, unique:true}
+		}
+	},
+	rufsGroupUser: {
+		properties: {
+			rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: {table: "rufsUser", field: "id"}},
+			rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: {table: "rufsGroup", field: "id"}}
+		}
+	}
+};
+
+RufsMicroService.defaultGroupOwnerAdmin = {
+//	id: 1,
+	name: "ADMIN"
+};
+
+RufsMicroService.defaultUserAdmin = {
+//	id: 1, 
+	name: "admin", rufsGroupOwner: 1, password: "admin", path: "rufs_user/search",
+	roles: '{"rufsGroupOwner":{"create":true,"update":true,"delete":true},"rufsUser":{"create":true,"update":true,"delete":true},"rufsGroup":{"create":true,"update":true,"delete":true},"rufsGroupUser":{"create":true,"update":true,"delete":true}}',
+	routes: '[{"path": "/app/rufs_service/:action", "controller": "RufsServiceController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
+};
+
+RufsMicroService.checkStandalone();
 
 export {RufsMicroService};

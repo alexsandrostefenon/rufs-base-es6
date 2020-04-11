@@ -1,7 +1,7 @@
 class RufsSchema {
 
 	constructor(name, fields) {
-		console.log(`DataStore.constructor(${name})`);
+//		console.log(`DataStore.constructor(${name}) ->`);
 		this.name = name;
 		this.fields = typeof fields === "string" ? JSON.parse(fields) : fields;
 		const entries = Object.entries(this.fields);
@@ -48,6 +48,8 @@ class RufsSchema {
 				}
 			}
 		}
+		
+//		console.log(`DataStore.constructor(${name}) <-`);
 	}
 	
 	checkPrimaryKey(obj) {
@@ -429,7 +431,8 @@ class DataStoreItem extends DataStore {
 		} else if (field.type.includes("date") || field.type.includes("time")) {
 			stringBuffer.push(new Date(value).toLocaleString());
 		} else {
-			stringBuffer.push(value);
+			// TODO : verificar se o uso do "trim" não tem efeitos colaterais.
+			stringBuffer.push(value.toString().trim());
 		}
 
     	return stringBuffer;

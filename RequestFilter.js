@@ -10,7 +10,7 @@ const fsPromises = fs.promises;
 
 class RequestFilter {
 	static getForeignKeyEntries(serviceName, foreignServiceName) {
-        const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
+		const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
 		let foreignKeyEntries = [];
 
 		for (let [fieldName, field] of Object.entries(service.fields)) {
@@ -34,7 +34,7 @@ class RequestFilter {
 	}
 
 // private to create,update,delete,read
-	static checkObjectAccess(tokenData, serviceName, obj) { // LoginResponse tokenData, EntityManager entityManager, Object obj
+	static checkObjectAccess(tokenData, serviceName, obj) {
 		let service;
 
 		try {
@@ -225,7 +225,7 @@ class RequestFilter {
 			const type = field.type;
 
 			if (field.primaryKey == true && type != undefined) {
-				if (type == "i" || type.includes("date") || type.includes("time")) {
+				if (type == "integer" || type.includes("date") || type.includes("time")) {
 					orderBy.push(fieldName + " desc");
 				}
 			}
@@ -236,12 +236,12 @@ class RequestFilter {
 		);
 	}
 
-	static getDbConn(dbConnInfo) {
+	static getDbConn(dbConnInfo, limitQuery) {
 		let dbClient = RequestFilter.dbConnMap.get(dbConnInfo);
 
 		if (dbClient != undefined) Promise.resolve(dbClient);
 
-		dbClient = new DbClientPostgres({connectionString: dbConnInfo});
+		dbClient = new DbClientPostgres({"connectionString": dbConnInfo, "limitQuery": limitQuery});
 
 		return dbClient.connect().
 		then(() => {
@@ -293,7 +293,9 @@ class RequestFilter {
 	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath, useDocument) {
 		// rufsProcess
 		let rufsProcess = tokenData => {
-			if (RequestFilter.dbConnMap.get(tokenData.dbConnInfo) != undefined) {
+			if (microService.fileDbAdapter.fileTables.has(serviceName) == true) {
+				entityManager = microService.fileDbAdapter;
+			} else if (RequestFilter.dbConnMap.get(tokenData.dbConnInfo) != undefined) {
 				entityManager = RequestFilter.dbConnMap.get(tokenData.dbConnInfo);
 				console.log(`[RequestFilter.processRequest] : using connection ${tokenData.dbConnInfo}`);
 			}
@@ -394,19 +396,11 @@ class RequestFilter {
 		return primaryKey;
 	}
 
-	static loadTable(entityManager, name) {
-		return entityManager.find(name).catch(() => fsPromises.readFile(name + ".json").then(data => JSON.parse(data)));
-	}
-
 	static updateRufsServices(entityManager, openapi) {
         return Promise.resolve().then(() => {
 			RequestFilter.listService = [];
 			// TODO : trocar openapi.definitions por openapi.paths
         	for (let name in openapi.definitions) RequestFilter.listService.push(new RufsSchema(name, openapi.definitions[name].properties));
-        }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupUser")).then(rows => {
-            RequestFilter.listGroupUser = rows;
-        }).then(() => RequestFilter.loadTable(entityManager, "rufsGroupOwner")).then(rows => {
-            RequestFilter.listGroupOwner = rows;
         });
 	}
 
@@ -414,7 +408,5 @@ class RequestFilter {
 
 RequestFilter.dbConnMap = new Map();
 RequestFilter.listService = [];
-RequestFilter.listGroupUser = [];
-RequestFilter.listGroupOwner = [];
 
 export {RequestFilter}

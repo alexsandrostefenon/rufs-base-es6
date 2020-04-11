@@ -130,7 +130,6 @@ class RufsService extends DataStoreItem {
         let appName = params.appName != undefined ? params.appName : "crud";
         this.path = CaseConvert.camelToUnderscore(params.name);
         this.pathRest = appName + "/rest/" + this.path;
-		this.isOnLine = params.isOnLine;
 		this.remoteListeners = [];
 	}
 
@@ -265,31 +264,38 @@ class ServerConnection {
     login(server, path, user, password, RufsServiceClass, callbackPartial, dbUri) {
 		this.url = server;
 		if (path != null && path.startsWith("/")) path = path.substring(1);
+		if (path != null && path.endsWith("/")) path = path.substring(0, path.length-1);
 		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
-    	return this.httpRest.request("authc/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri})
+    	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri})
     	.then(loginResponse => {
     		this.title = loginResponse.title;
     		this.user = loginResponse.user;
-    		this.httpRest.setToken(this.user.authctoken);
+    		this.httpRest.setToken(loginResponse.authctoken);
     		const listQueryRemote = [];
             // depois carrega os serviços autorizados
             for (let params of loginResponse.rufsServices) {
             	if (params != null) {
 					if (params.appName == undefined) params.appName = path;
 					params.access = loginResponse.roles[params.name];
-					if (params.access.query == undefined) params.access.query = true;
-					if (params.access.read == undefined) params.access.read = true;
-					if (params.access.create == undefined) params.access.create = false;
-					if (params.access.update == undefined) params.access.update = false;
-					if (params.access.delete == undefined) params.access.delete = false;
+
+					if (params.access != undefined) {
+						if (params.access.query == undefined) params.access.query = true;
+						if (params.access.read == undefined) params.access.read = true;
+						if (params.access.create == undefined) params.access.create = false;
+						if (params.access.update == undefined) params.access.update = false;
+						if (params.access.delete == undefined) params.access.delete = false;
+					} else {
+						params.access = {"create": false, "read": false, "update": false, "delete": false, "query": false};
+					}
+
 					let service = new RufsServiceClass(this, params, this.httpRest);
 					if (service.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) service.fields.rufsGroupOwner.hiden = true;
 					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.default == undefined) service.fields.rufsGroupOwner.default = this.user.rufsGroupOwner;
 					this.services[service.name] = service;
 
-					if (service.isOnLine != true && service.params.access.query == true) {
+					if (service.params.access.query == true) {
 						listQueryRemote.push(service);
 					}
             	}

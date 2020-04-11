@@ -35,23 +35,34 @@ class MicroServiceServer {
 		return value;
 	}
 
+	static getArgs(preferenceConfig) {
+		let config = {};
+		config.dbConfig = {};
+		if (preferenceConfig == undefined) preferenceConfig = {};
+		if (preferenceConfig.dbConfig == undefined) preferenceConfig.dbConfig = {};
+		config.dbConfig.host = preferenceConfig.dbConfig.host || MicroServiceServer.getArg("db_host");//localhost// Server hosting the postgres database
+		config.dbConfig.port = preferenceConfig.dbConfig.port || MicroServiceServer.getArg("db_port");//5432//env var: PGPORT
+		config.dbConfig.database = preferenceConfig.dbConfig.database || MicroServiceServer.getArg("db_name");//env var: PGDATABASE
+		config.dbConfig.user = preferenceConfig.dbConfig.user || MicroServiceServer.getArg("db_user");//"development", //env var: PGUSER
+		config.dbConfig.password = preferenceConfig.dbConfig.password || MicroServiceServer.getArg("db_password");//"123456", //env var: PGPASSWORD
+		config.dbConfig.limitQuery = preferenceConfig.dbConfig.limitQuery || MicroServiceServer.getArg("db-limit-query");
+
+		config.appName = preferenceConfig.appName || MicroServiceServer.getArg("name", "");
+		config.port = preferenceConfig.port || MicroServiceServer.getArg("port", "9080");
+		config.fileNamePrivateKey = preferenceConfig.fileNamePrivateKey || MicroServiceServer.getArg("private-key", "key.pem");
+		config.fileNameCertificate = preferenceConfig.fileNameCertificate || MicroServiceServer.getArg("certificate", "cert.pem");
+		config.webapp = preferenceConfig.webapp;
+
+		if (config.appName && config.appName.length > 0) {
+			config.webapp = config.webapp || MicroServiceServer.getArg("webapp", `./rufs-${config.appName}-es6/webapp`);
+		}
+
+		console.log(`[MicroServiceServer.getArgs] service ${config.appName}, port ${config.port} : serving static files of ${config.webapp}`);
+		return config;
+	}
+
 	constructor(config) {
-		this.config = {};
-		this.config.dbConfig = {};
-		if (config == undefined) config = {};
-		if (config.dbConfig == undefined) config.dbConfig = {};
-		this.config.dbConfig.host = config.dbConfig.host || MicroServiceServer.getArg("db_host");//localhost// Server hosting the postgres database
-		this.config.dbConfig.port = config.dbConfig.port || MicroServiceServer.getArg("db_port");//5432//env var: PGPORT
-		this.config.dbConfig.database = config.dbConfig.database || MicroServiceServer.getArg("db_name");//env var: PGDATABASE
-		this.config.dbConfig.user = config.dbConfig.user || MicroServiceServer.getArg("db_user");//"development", //env var: PGUSER
-		this.config.dbConfig.password = config.dbConfig.password || MicroServiceServer.getArg("db_password");//"123456", //env var: PGPASSWORD
-
-		this.config.appName = config.appName || MicroServiceServer.getArg("name", "");
-		this.config.port = config.port || MicroServiceServer.getArg("port", "9080");
-		this.config.fileNamePrivateKey = config.fileNamePrivateKey || MicroServiceServer.getArg("private-key", "key.pem");
-		this.config.fileNameCertificate = config.fileNameCertificate || MicroServiceServer.getArg("certificate", "cert.pem");
-		this.config.webapp = config.webapp || MicroServiceServer.getArg("webapp", `./rufs-${this.config.appName}-es6/webapp`);
-
+		this.config = MicroServiceServer.getArgs(config);
 		this.restServer = express();
 		this.restServer.use(express.urlencoded({extended:true}));
 		this.restServer.use(express.json());
@@ -60,6 +71,7 @@ class MicroServiceServer {
 		this.restServer.all("*", (req, res, next) => this.expressEndPoint(req, res, next));
 
 		this.expressServer = express();
+		console.log(`[MicroServiceServer.constructor] service ${this.config.appName}, port ${this.config.port} : serving static files of ${this.config.webapp}`);
 		this.expressServer.use("/", express.static(this.config.webapp));
 		this.expressServer.use("/rest", this.restServer);
 
@@ -120,39 +132,53 @@ class MicroServiceServer {
 
 		if (req.method === 'OPTIONS') {
 			res.send("Ok");
-			return;
+			return Promise.resolve();
 		}
 
-		this.onRequest(req, res, next, resource, action).
+		return this.onRequest(req, res, next, resource, action).
 		catch(err => {
-			console.error(`[${this.appName}] ${req.url} : ${err.message}`);
+			console.error(`[${this.config.appName}] ${req.url} : ${err.message}`);
 			return Response.internalServerError(err.message);
 		}).
 		then(response => res.status(response.status).send(response.data));
 	}
 	// remove the session after it's closed
 	onWsCloseFromClient(session) {
-		if (session && session.token && session.token.tokenPayload && session.token.tokenPayload.name) {
-			const tokenPayload = session.token;
+		if (!session) {
+			throw new Error("Ivalid session");
+		}
 
-			if (this.wsServerConnections.get(tokenPayload.name) != null) {
-				console.log("Websoket session closed:", this.config.appName, tokenPayload.name);
-				this.wsServerConnections.delete(tokenPayload.name);
-			}
-		} else {
-			console.error("[microServiceServer.onWsCloseFromClient] Ivalid session : ", session);
+		if (!session.token) {
+			// A chamada à "window.location.reload();"
+			// causa o wsSocket close sem o token, por isto não vou gerar exception
+			console.warn("Ivalid session token");
+			return;
+		}
+
+		if (!session.token.name) {
+			throw new Error("Ivalid session token name");
+		}
+
+		const tokenPayload = session.token;
+
+		if (this.wsServerConnections.has(tokenPayload.name) == true) {
+			console.log("Websoket session closed:", this.config.appName, tokenPayload.name);
+			this.wsServerConnections.delete(tokenPayload.name);
 		}
 	}
 
 	onWsMessageFromClient(session, token) {
 		try {
 			const tokenPayload = jwt.verify(token, process.env.JWT_SECRET || "123456");
-
-			if (this.wsServerConnections.get(tokenPayload.name) == null) {
-				session.token = tokenPayload;
-				this.wsServerConnections.set(tokenPayload.name, session);
-				console.log("New websocket session opened:", this.config.appName, " user : ", tokenPayload.name);
+			// TODO : verificar o comportamento para esta condição
+			if (this.wsServerConnections.has(tokenPayload.name) == true) {
+				const oldSession = this.wsServerConnections.get(tokenPayload.name);
+				console.error("Replacing already websocket session, check close process !!! :", this.config.appName, " user : ", oldSession.token.name);
 			}
+
+			session.token = tokenPayload;
+			this.wsServerConnections.set(tokenPayload.name, session);
+			console.log("New websocket session opened:", this.config.appName, " user : ", tokenPayload.name);
 		} catch (err) {
 			console.error("JWT Authorization fail : ", err);
 		}
@@ -229,15 +255,18 @@ class MicroServiceServer {
 		return fsPromises.writeFile("openapi.json", JSON.stringify(openapi, null, "\t")).then(() => openapi);
 	}
 
-	static updateJsonSchema(schemaName, tableInfoNew, tableInfoOld) {
+	static updateJsonSchema(schemaName, schemaNew, schemaOld) {
+		schemaOld = schemaOld != undefined && schemaOld != null ? schemaOld : {};
+//		console.log(`[MicroServiceServer.updateJsonSchema(schemaName: ${schemaName}, schemaNew.properties: ${schemaNew.properties}, schemaOld.properties: ${schemaOld.properties})]`);
 		const jsonSchemaTypes = ["boolean", "string", "integer", "numeric", "datetime-local", "date"];
-		if (tableInfoNew.properties == undefined) tableInfoNew.properties = {};
-		if (tableInfoOld.properties == undefined) tableInfoOld.properties = {};
-		let newFields = tableInfoNew.properties;
-		let oldFields = tableInfoOld.properties;
+		if (schemaNew.properties == undefined) schemaNew.properties = {};
+		if (schemaOld.properties == undefined) schemaOld.properties = {};
+		let newFields = schemaNew.properties;
+		let oldFields = schemaOld.properties;
 		if (newFields == undefined) throw new Error(`rufsServiceDbSync.generateJsonSchema(${schemaName}, ${newFields}) : newFields : Invalid Argument Exception`);
 		if (typeof(newFields) == "string") newFields = Object.entries(JSON.parse(newFields));
 		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
+		if (newFields instanceof Map == false) newFields = Object.entries(newFields);
 		let jsonBuilder = {}; 
 
 		for (let [fieldName, field] of newFields) {
@@ -249,7 +278,7 @@ class MicroServiceServer {
 				console.error(`${schemaName} : ${fieldName} : Unknow type : ${field.type}`);
 				continue;
 			}
-			// type (columnDefinition), readOnly, hiden, primaryKey, required (insertable), updatable, defaultValue, length, precision, scale 
+			// type (columnDefinition), readOnly, hiden, primaryKey, required (insertable), updatable, default, length, precision, scale 
 			let jsonBuilderValue = {};
 			// registra conflitos dos valores antigos com os valores detectados do banco de dados
 			jsonBuilderValue["type"] = field.type;
@@ -299,7 +328,7 @@ class MicroServiceServer {
 			}
 
 			jsonBuilderValue["primaryKey"] = field.primaryKey;
-			jsonBuilderValue["defaultValue"] = field.default;
+			jsonBuilderValue["default"] = field.default;
 			jsonBuilderValue["unique"] = field.unique;
 			jsonBuilderValue["identityGeneration"] = field.identityGeneration;
 			jsonBuilderValue["isClonable"] = field.isClonable;

@@ -11,23 +11,23 @@ class RufsServiceMicroService extends RufsMicroService {
 		const name = req.query.name;
 		return this.constructor.loadOpenApi().
 		then(openapi => {
-			const objOld = openapi.definitions[name];
-			const obj = req.body;
-			console.log(`.update : [${name}] :\nold fields :\n`, objOld.fields, "\nnew fields :\n", obj.fields);
+			const schemaOld = openapi.definitions[name];
+			const schema = req.body;
+			console.log(`.update : [${name}] :\nold properties :\n`, schemaOld.properties, "\nnew properties :\n", schema.properties);
 			let promise;
 
-			if (objOld.fields == undefined) {
-				if (obj.fields != undefined)
-					promise = this.rufsServiceDbSync.createTable(obj.name, obj.fields).then(resSqlCreate => obj);
+			if (schemaOld.properties == undefined) {
+				if (schema.properties != undefined)
+					promise = this.rufsServiceDbSync.createTable(schema.name, schema).then(resSqlCreate => schema);
 				else
-					promise = Promise.resolve(obj);
+					promise = Promise.resolve(schema);
 			} else {
-				if (obj.fields == undefined) obj.fields = "{}";
-				promise =  this.rufsServiceDbSync.alterTable(obj.name, obj.fields, objOld.fields).then(resSqlAlter => obj);
+				if (schema.properties == undefined) schema.properties = "{}";
+				promise =  this.rufsServiceDbSync.alterTable(schema.name, schema.properties, schemaOld.properties).then(resSqlAlter => schema);
 			}
 			
-			promise.then(objChanged => {
-				openapi.definitions[name] = this.constructor.updateJsonSchema(objChanged.name, objChanged, objOld);
+			promise.then(schemaChanged => {
+				openapi.definitions[name] = this.constructor.updateJsonSchema(schemaChanged.name, schemaChanged, schemaOld);
 				return this.storeOpenApi(openapi);
 			});
 		}).
@@ -39,11 +39,11 @@ class RufsServiceMicroService extends RufsMicroService {
 		
 	remove(req, res, next, resource, action) {
 		return this.entityManager.findOne("rufsService", {name: req.query.name}).
-		then(objOld => {
-			console.log(`.remove : [${objOld.name}] : old fields`);
-			return this.rufsServiceDbSync.dropTable(objOld.name).then(resSqlDrop => objOld);
+		then(schemaOld => {
+			console.log(`.remove : [${schemaOld.name}] : old properties`);
+			return this.rufsServiceDbSync.dropTable(schemaOld.name).then(resSqlDrop => schemaOld);
 		}).
-		then(objChanged => {
+		then(schemaChanged => {
 			return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
 		}).
 		catch(err => {

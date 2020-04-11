@@ -12,6 +12,8 @@ types.setTypeParser(1114, str => new Date(str + "+0000"));
 class DbClientPostgres {
 
 	constructor(dbConfig) {
+		this.limitQuery = 10 * 1000;
+		
 		this.dbConfig = {
 		  max: 10, // max number of clients in the pool
 		  idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
@@ -25,6 +27,7 @@ class DbClientPostgres {
 			if (dbConfig.password != undefined) this.dbConfig.password = dbConfig.password;
 			// const connectionString = 'postgresql://dbuser:secretpassword@database.server.com:3211/mydb'
 			if (dbConfig.connectionString != undefined) this.dbConfig.connectionString = dbConfig.connectionString;
+			if (dbConfig.limitQuery != undefined) this.limitQuery = dbConfig.limitQuery;
 		}
 		//connect to our database
 		//env var: PGHOST,PGPORT,PGDATABASE,PGUSER,PGPASSWORD
@@ -104,6 +107,7 @@ class DbClientPostgres {
 		const sql = "INSERT INTO " + tableName + " (" + strFields + ") VALUES (" + strValues + ") RETURNING *";
 		return this.client.query(sql, params).
 		then(result => {
+			console.log(`[${this.constructor.name}.insert(${tableName})]\n${sql}\n`, createObj, "\n", result.rows[0]);
 			return result.rows[0];
 		}).
 		catch(err => {
@@ -115,8 +119,9 @@ class DbClientPostgres {
 	find(tableName, fields, orderBy) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
 		const params = [];
-		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(fields, params, orderBy) + " LIMIT 10000";
-//		console.log(sql);
+		const sqlQuery = DbClientPostgres.buildQuery(fields, params, orderBy);
+		const sql = `SELECT * FROM ${tableName} ${sqlQuery} LIMIT ${this.limitQuery}`;
+		console.log(sql);
 		return this.client.query(sql, params).then(result => result.rows);
 	}
 
@@ -202,10 +207,10 @@ class DbClientPostgres {
 	
 	getTablesInfo() {
 		const foreignKeysExportUsage = () => {
-			return this.find("informationSchema.constraintColumnUsage").then(list => {
+			return this.client.query("SELECT * FROM information_schema.constraint_column_usage").then(result => {
 				let mapForeignKeysExport = new Map();
 				
-				for (let rec of list) {
+				for (let rec of result.rows) {
 					if (rec.constraintName.includes("_fkey") || rec.constraintName.includes("_fk")) {
 						const table = CaseConvert.underscoreToCamel(rec.tableName, false);
 						const field = CaseConvert.underscoreToCamel(rec.columnName, false);
@@ -227,8 +232,8 @@ class DbClientPostgres {
 		};
 		
 		const foreignKeysImportUsage = (mapTables, mapForeignKeysExport) => {
-			return this.find("informationSchema.keyColumnUsage").then(list => {
-				for (let rec of list) {
+			return this.client.query("SELECT * FROM information_schema.key_column_usage").then(result => {
+				for (let rec of result.rows) {
 					const tableName = CaseConvert.underscoreToCamel(rec.tableName, false);
 					
 					if (mapTables.has(tableName) == true) {
@@ -274,7 +279,7 @@ class DbClientPostgres {
 				"from pg_catalog.pg_statio_all_tables as st " +
 				"inner join pg_catalog.pg_description pgd on (pgd.objoid=st.relid) " +
 				"right outer join information_schema.columns c on (pgd.objsubid=c.ordinal_position and  c.table_schema=st.schemaname and c.table_name=st.relname) " +
-				"where table_schema = 'public'";
+				"where table_schema = 'public' order by c.table_name,c.ordinal_position";
 			return this.client.query(sqlGetComments).then(result => {
 				let mapTables = new Map();
 
@@ -330,7 +335,28 @@ class DbClientPostgres {
 			});
 		};
 
-		return processColumns().then(mapTables => foreignKeysExportUsage(mapTables).then(mapForeignKeysExport => foreignKeysImportUsage(mapTables, mapForeignKeysExport)));
+		return processColumns().
+		then(mapTables => foreignKeysExportUsage(mapTables).then(mapForeignKeysExport => foreignKeysImportUsage(mapTables, mapForeignKeysExport)));
+	}
+
+	getOpenApi() {
+		return this.getTablesInfo().then(mapTables => {
+			const openapi = {};
+			openapi.definitions = {};
+
+			for (let [name, schemaDb] of mapTables) {
+				const schemaObj = {};
+				schemaObj.properties = {};
+
+				for (let [fieldName, field] of schemaDb.properties) {
+					schemaObj.properties[fieldName] = field;
+				}
+
+				openapi.definitions[name] = schemaObj;
+			}
+
+			return openapi;
+		});
 	}
 
 }
