@@ -1,12 +1,46 @@
 class RufsSchema {
 
-	constructor(name, fields) {
+	constructor(name, schema) {
 //		console.log(`DataStore.constructor(${name}) ->`);
 		this.name = name;
-		this.fields = typeof fields === "string" ? JSON.parse(fields) : fields;
+		this.schema = schema;
+		this.properties = this.fields = typeof schema.properties === "string" ? JSON.parse(schema.properties) : schema.properties;
+		this.foreignKeys = schema.foreignKeys;
+		this.uniqueKeys = schema.uniqueKeys;
+		this.primaryKeys = schema.primaryKeys;
 		const entries = Object.entries(this.fields);
 		this.shortDescriptionList = [];
-		
+		// TODO : código temporário até terminar de migrar field.primaryKey para schema.primaryKeys
+		if (this.primaryKeys == undefined) {
+			this.primaryKeys = [];
+
+			for (let [fieldName, field] of entries) if (field.primaryKey == true) this.primaryKeys.push(fieldName);
+		}
+		// TODO : código temporário até terminar de migrar field.foreignKeysImport para schema.foreignKeys
+		if (this.foreignKeys == undefined) {
+			this.foreignKeys = {};
+
+			for (let [fieldName, field] of entries) {
+				if (field.foreignKeysImport != undefined) {
+					const foreignKeyDescription = this.foreignKeys[fieldName] = [];
+
+					for (let item of field.foreignKeysImport) {
+						foreignKeyDescription.push({"fields": [fieldName], "tableRef": item.table, "fieldsRef": [item.field]});
+					}
+				}
+			}
+		}
+		// TODO : código temporário até terminar de migrar field.unique para schema.uniqueKeys
+		if (this.uniqueKeys == undefined) {
+			this.uniqueKeys = {};
+
+			for (let [fieldName, field] of entries) {
+				if (field.unique != undefined) {
+					this.uniqueKeys[fieldName] = [fieldName];
+				}
+			}
+		}
+
 		for (let [fieldName, field] of entries) {
 			if (field.type == undefined) field.type = "string";
 			if (field.orderIndex == undefined) field.orderIndex = entries.length;
@@ -15,25 +49,13 @@ class RufsSchema {
 			if (field.shortDescription == undefined) field.shortDescription = false;
 			if (field.shortDescription == true) this.shortDescriptionList.push(fieldName);
 		}
-		// primary key
-		this.primaryKeys = [];
-		for (let [fieldName, field] of Object.entries(this.fields)) if (field.primaryKey == true) this.primaryKeys.push(fieldName);
-		// unique keys
-		this.uniqueKeyMap = new Map();
-
-		for (let [fieldName, field] of Object.entries(this.fields)) {
-			if (field.unique != undefined) {
-				if (this.uniqueKeyMap.has(field.unique) == false) this.uniqueKeyMap.set(field.unique, []);
-				this.uniqueKeyMap.get(field.unique).push(fieldName);
-			}
-		}
 		// Se não foi definido manualmente o shortDescriptionList, monta em modo automático usando os uniqueMaps
 		if (this.shortDescriptionList.length == 0) {
 			if (this.primaryKeys.find(fieldName => this.fields[fieldName].tableVisible == false) == undefined) {
 				Array.prototype.push.apply(this.shortDescriptionList, this.primaryKeys);
 			}
 
-			for (let [name, list] of this.uniqueKeyMap) {
+			for (let [name, list] of Object.entries(this.uniqueKeys)) {
 				if (list.find(fieldName => this.fields[fieldName].tableVisible == false) == undefined) {
 					for (let fieldName of list) if (this.shortDescriptionList.includes(fieldName) == false) this.shortDescriptionList.push(fieldName);
 					if (this.shortDescriptionList.length > 3) break;
@@ -129,80 +151,9 @@ class RufsSchema {
 			if (primaryKey != null) ret.push(primaryKey);
 		}
 		// unique keys
-		for (let fieldNames of this.uniqueKeyMap.values()) {
-			let key = RufsSchema.copyFieldsFromList(obj, fieldNames, true);
+		for (let [name, uniqueKey] of Object.entries(this.uniqueKeys)) {
+			let key = RufsSchema.copyFieldsFromList(obj, uniqueKey, true);
 			if (key != null) ret.push(key);
-		}
-
-		return ret;
-	}
-
-	getPrimaryKeyFromForeignData(dataForeign, fieldNameForeign, fieldName) {
-		let primaryKey = RufsSchema.copyFieldsFromList(dataForeign, this.primaryKeys, false);
-
-		if (primaryKey != null) {
-			if (fieldName != undefined && fieldName != null) {
-				primaryKey[fieldName] = dataForeign[fieldNameForeign];
-			} else if (this.primaryKeys.indexOf(fieldNameForeign) < 0 && this.primaryKeys.indexOf("id") >= 0) {
-				primaryKey["id"] = dataForeign[fieldNameForeign];
-			}
-		} else {
-			console.error(`[RufsSchema.getPrimaryKeyFromForeignData()] : ${this.name} : don't find primary key for ${dataForeign}`);
-		}
-
-		return primaryKey;
-	}
-	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
-	// field.foreignKeysImport: {table: "request", field: "rufsGroupOwner"}
-	// foreignKey = {rufsGroupOwner: 2, request: 1}
-	static getForeignKeyFromPrimaryKeyForeign(service, primaryKeyForeign, fieldName) {
-		const foreignKey = {};
-		
-		for (let fieldNameOfPrimaryKeyForeign in primaryKeyForeign) {
-			if (fieldNameOfPrimaryKeyForeign != "id" && service.primaryKeys.indexOf(fieldNameOfPrimaryKeyForeign) >= 0) {
-				foreignKey[fieldNameOfPrimaryKeyForeign] = primaryKeyForeign[fieldNameOfPrimaryKeyForeign];
-			}
-		}
-		
-		const field = service.fields[fieldName];
-
-		if (field.foreignKeysImport != undefined) {
-			foreignKey[fieldName] = primaryKeyForeign[field.foreignKeysImport.field];
-		} else if (primaryKeyForeign[fieldName] != undefined) {
-			foreignKey[fieldName] = primaryKeyForeign[fieldName];
-		} else if (primaryKeyForeign.id != undefined) {
-			foreignKey[fieldName] = primaryKeyForeign.id;
-		}
-
-		return foreignKey;
-	}
-
-	static getDependents(services, name, onlyInDocument) {
-		if (typeof services === 'object' && services !== null) {
-			services = Object.values(services);
-		}
-
-		if (Array.isArray(services) == false) {
-			console.error(`[RufsSchema.getDependents] : invalid param services:`, services);
-		}
-
-		const ret = [];
-
-		for (let service of services) {
-			for (let [fieldName, field] of Object.entries(service.fields)) {
-				if (field.foreignKeysImport != undefined) { // foreignKeysImport : [{table, field}]
-					if (field.foreignKeysImport.table == name) {
-						if (onlyInDocument != true || field.document != undefined) {
-							if (ret.find(item => item.table == service.name && item.field == fieldName) != undefined) {
-								console.error(`[RufsSchema.getDependents] : already added table ${service.name} and field ${fieldName} combination.`);
-							} else {
-								ret.push({"table": service.name, "field": fieldName})
-							}
-//							break;
-						}
-					}
-				}
-			}
 		}
 
 		return ret;
@@ -212,8 +163,8 @@ class RufsSchema {
 // minimal wrapper to Html5 IndexedDb
 class DataStore extends RufsSchema {
 
-	constructor(name, fields, list) {
-		super(name, fields);
+	constructor(name, schema, list) {
+		super(name, schema);
 		this.list = list || [];
 	}
 
@@ -283,12 +234,168 @@ class DataStore extends RufsSchema {
 }
 // manager of  IndexedDb collections
 class DataStoreManager {
+
+	constructor(list) {
+		this.services = {};
+
+		if (Array.isArray(list) == true) {
+			for (let service of list) {
+				this.services[service.name] = service;
+			}
+		}
+	}
+
+	getDependencies(serviceName, list) {
+		if (list == undefined)
+			list = [];
+
+		const service = this.services[serviceName];
+
+		if (service == undefined) {
+			console.log(`[${this.constructor.name}.getDependencies(${serviceName})] : don't registred service.`);
+			return list;
+		}
+
+		for (let [fieldName, field] of Object.entries(service.fields)) {
+			if (field.foreignKeysImport != undefined) {
+				for (let item of field.foreignKeysImport) {
+					const dependency = item.table;
+
+					if (list.includes(dependency) == false) {
+						const service = this.services[dependency];
+
+						if (service != undefined) {
+							list.unshift(dependency);
+							this.getDependencies(dependency, list);
+						} else {
+							console.log(`[${this.constructor.name}.getDependencies(${serviceName})] : don't registred dependency ${dependency}.`);
+						}
+					}
+				}
+			}
+		}
+
+		return list;
+	}
+
+	getDependents(name, onlyInDocument) {
+		const services = Object.values(this.services);
+
+		const ret = [];
+
+		for (let service of services) {
+			for (let [fieldName, field] of Object.entries(service.fields)) {
+				if (field.foreignKeysImport != undefined) { // foreignKeysImport : [{table, field}]
+					if (field.foreignKeysImport.find(item => item.table == name) != undefined) {
+						if (onlyInDocument != true || field.document != undefined) {
+							if (ret.find(item => item.table == service.name && item.field == fieldName) != undefined) {
+								console.error(`[${this.constructor.name}.getDependents] : already added table ${service.name} and field ${fieldName} combination.`);
+							} else {
+								ret.push({"table": service.name, "field": fieldName})
+							}
+//							break;
+						}
+					}
+				}
+			}
+		}
+
+		return ret;
+	}
+
+	getForeignKeyEntries(serviceName, foreignServiceName) {
+		const service = this.services[serviceName];
+		let foreignKeyEntries = [];
+
+		for (let [fieldName, field] of Object.entries(service.fields)) {
+			if (field.foreignKeysImport != undefined) {
+				const list = field.foreignKeysImport.filter(item => item.table == foreignServiceName);
+
+				if (list.length > 0)
+					foreignKeyEntries.push({fieldName, field});
+			}
+		}
+
+		return foreignKeyEntries;
+	}
+    // devolve o rufsService apontado por field
+    getForeignService(service, fieldName) {
+    	// TODO : refatorar consumidores da função getForeignService(field), pois pode haver mais de uma referência
+    	let serviceName = service.fields[fieldName].foreignKeysImport[0].table;
+        return this.services[serviceName];
+    }
+	// (service, (service.field|foreignTableName)
+	getForeignKeyDescription(service, name) {
+		if (typeof service == "string")
+			service = this.services[service];
+
+		let foreignKeyName = undefined;
+
+		if (service.fields[name] != undefined) {
+			const field = service.fields[name];
+
+			if (field.foreignKeysImport != undefined)
+				foreignKeyName = field.foreignKeysImport[0].name;
+		} else {
+			for (let [itemName, item] of Object.entries(service.foreignKeys)) {
+				if (item.tableRef == name) {
+					foreignKeyName = itemName;
+					break;
+				}
+			}
+		}
+
+		if (foreignKeyName == undefined) {
+			return undefined;
+		}
+
+		return service.foreignKeys[foreignKeyName];
+	}
+	// (service, (service.field|foreignTableName), service.obj) => [{name: constraintName, table: foreignTableName, foreignKey: {}}]
+	getPrimaryKeyForeign(service, name, obj) {
+		const foreignKeyDescription = this.getForeignKeyDescription(service, name);
+
+		if (foreignKeyDescription == undefined)
+			return undefined;
+
+		const key = {};
+
+		if (obj != undefined) {
+			for (let i = 0; i < foreignKeyDescription.fields.length; i++) {
+				const field = foreignKeyDescription.fields[i];
+				const fieldRef = foreignKeyDescription.fieldsRef[i];
+				key[fieldRef] = obj[field];
+			}
+		}
+
+    	return {"name" : foreignKeyDescription.name, "table": foreignKeyDescription.tableRef, "primaryKey": key};
+	}
+	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
+	// field.foreignKeysImport: [{table: "request", field: "rufsGroupOwner"}]
+	// foreignKey = {rufsGroupOwner: 2, request: 1}
+	getForeignKey(service, name, obj) {
+		const foreignKeyDescription = this.getForeignKeyDescription(service, name);
+
+		if (foreignKeyDescription == undefined)
+			return undefined;
+
+		const key = {};
+
+		for (let i = 0; i < foreignKeyDescription.fields.length; i++) {
+			const field = foreignKeyDescription.fields[i];
+			const fieldRef = foreignKeyDescription.fieldsRef[i];
+			key[field] = obj[fieldRef];
+		}
+
+    	return key;
+	}
+
 }
 // differ to DataStore by instance and filter, aggregate, sort and pagination features
 class DataStoreItem extends DataStore {
 	
-	constructor(name, fields, list) {
-		super(name, fields, list);
+	constructor(name, schema, list) {
+		super(name, schema, list);
 		this.pagination = new Pagination(100);
 	}
 
@@ -383,8 +490,8 @@ class DataStoreItem extends DataStore {
 		this.aggregateResults = new Map();
 	}
     // private
-	buildField(stringBuffer, fieldName, item) {
-    	let value = item[fieldName];
+	buildField(stringBuffer, fieldName, obj) {
+    	let value = obj[fieldName];
 
 		if (value == undefined || value == null || value === "") {
 			return stringBuffer;
@@ -402,20 +509,22 @@ class DataStoreItem extends DataStore {
 			return stringBuffer;
 		}
 
-		if (field.foreignKeysImport != undefined && this.serverConnection.services[field.foreignKeysImport.table] != undefined) {
-			// neste caso, valRef contém o id do registro de referência
-			const service = this.serverConnection.getForeignImportRufsService(field);
-			// dataForeign, fieldNameForeign, fieldName
-			const primaryKey = service.getPrimaryKeyFromForeignData(item, fieldName, field.foreignKeysImport.field);
-			// public
-			let pos = service.findPos(primaryKey);
+		if (field.foreignKeysImport != undefined) {
+			const item = this.serverConnection.getPrimaryKeyForeign(this, fieldName, obj);
+			const service = this.serverConnection.services[item.table];
 
-			if (pos >= 0) {
-				stringBuffer.push(service.listStr[pos]);
+			if (service != undefined) {
+				const primaryKey = item.primaryKey;
+				let pos = service.findPos(primaryKey);
+
+				if (pos >= 0) {
+					stringBuffer.push(service.listStr[pos]);
+				} else {
+					console.error(`[${this.constructor.name}.buildField] don't find item from service ${service.name} with primaryKey ${JSON.stringify(primaryKey)}, used ${service.name}.getPrimaryKeyForeign(${JSON.stringify(obj)}, ${fieldName}, ${JSON.stringify(field.foreignKeysImport)})`);
+	//				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
+				}
 			} else {
-				console.error(`[dataStoreItem.buildField] don't find item from service ${service.name} with primaryKey : `, primaryKey);
-				console.error(`item : ${item}, fieldName : ${fieldName}, field.foreignKeysImport.field : ${field.foreignKeysImport.field}`);
-//				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
+				console.error(`[${this.constructor.name}.buildField] don't loaded service ${item.table}`);
 			}
 		} else if (fieldName == "id") {
 			// TODO : o "id" não deve fazer parte de StrValue, criar uma lista para armazenar os primaryKeys
@@ -596,14 +705,14 @@ class DataStoreItem extends DataStore {
 		if (filterRangeMax == undefined) filterRangeMax = this.instanceFilterRangeMax; else this.instanceFilterRangeMax = filterRangeMax;
 		console.log(`DataStoreItem.applyFilter() :`, filter, filterRangeMin, filterRangeMax);
 
-		const processForeign = (fieldFilter, item, fieldName, compareType) => {
+		const processForeign = (fieldFilter, obj, fieldName, compareType) => {
 			const compareFunc = (candidate, expected, compareType) => {
 				return Filter.matchObject(expected, candidate, (a,b,fieldName) => fieldName == undefined ? (compareType == 0 ? a == b : (compareType < 0 ? a < b : a > b)) : false, false);
 			}
 			
-			const field = this.fields[fieldName];
-			const service = this.serverConnection.getForeignImportRufsService(field);
-			const primaryKey = service.getPrimaryKeyFromForeignData(item, fieldName, field.foreignKeysImport.field);
+			const item = this.serverConnection.getPrimaryKeyForeign(this.rufsService, fieldName, obj);
+			const service = this.serverConnection.services[item.table];
+			const primaryKey = item.primaryKey;
 			let candidate = service.findOne(primaryKey);
 			let flag = compareFunc(candidate, fieldFilter.filter, 0);
 
@@ -888,4 +997,4 @@ class Pagination {
 
 }
 
-export {RufsSchema, DataStore, DataStoreItem, Filter, Pagination}
+export {RufsSchema, DataStore, DataStoreManager, DataStoreItem, Filter, Pagination}

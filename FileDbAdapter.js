@@ -24,7 +24,7 @@ class FileDbAdapter {
 		let listOut;
 
 		if (schema.properties.id != undefined) {
-			const rufsSchema = new RufsSchema(tableName, schema.properties);
+			const rufsSchema = new RufsSchema(tableName, schema);
 			listOut = [];
 
 			for (let i = 0; i < list.length; i++) {

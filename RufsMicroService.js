@@ -49,21 +49,21 @@ class RufsServiceDbSync {
 		let sqlNotNull = field.notNull == true ? "NOT NULL" : "";  
 		return `${CaseConvert.camelToUnderscore(fieldName)} ${sqlType}${sqlLengthScale} ${sqlDefault} ${sqlNotNull}`;
 	}
-
+	// TODO : refatorar função genSqlForeignKey(fieldName, field, mapTables) para genSqlForeignKey(tableName, mapTables)
 	genSqlForeignKey(fieldName, field, mapTables) {
-		let tableOut = CaseConvert.camelToUnderscore(field.foreignKeysImport.table);
-		let fieldOut = CaseConvert.camelToUnderscore(field.foreignKeysImport.field);
-		let str = "";
-//		console.log(`RufsServiceDbSync.genSqlForeignKey(${fieldName}) : field.foreignKeysImport.table : ${field.foreignKeysImport.table}, mapTables[field.foreignKeysImport.table] : ${mapTables[field.foreignKeysImport.table]}`);
-		const foreignSchema = mapTables.definitions[field.foreignKeysImport.table];
+		// TODO : refatorar (Array field.foreignKeysImport) para (Map shema.foreignKeysImport), onde a chave do mapa é o nome da chave estrangeira definida pelo SGDB
+		const ret = [];
 
-		if (tableOut != "rufs_group_owner" && foreignSchema != undefined && foreignSchema.rufsGroupOwner != undefined) {
-			str = `FOREIGN KEY(rufs_group_owner,${fieldName}) REFERENCES ${tableOut}(rufs_group_owner, ${fieldOut})`;
-		} else {
-			str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}(${fieldOut})`;
+		for (let item of field.foreignKeysImport) {
+			let tableOut = CaseConvert.camelToUnderscore(item.table);
+			let fieldOut = CaseConvert.camelToUnderscore(item.field);
+	//		console.log(`RufsServiceDbSync.genSqlForeignKey(${fieldName}) : item.table : ${item.table}, mapTables[item.table] : ${mapTables[item.table]}`);
+			const foreignSchema = mapTables.definitions[item.table];
+			const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}(${fieldOut})`;
+			ret.push(str);
 		}
 
-		return str;
+		return ret.join(",");
 	}
 
 	createTable(name, schema) {
@@ -328,7 +328,7 @@ RufsMicroService.tablesRufs = {
 	rufsUser: {
 		properties: {
 			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-			rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: {table: "rufsGroupOwner", field: "id"}},
+			rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: [{table: "rufsGroupOwner", field: "id"}]},
 			name: {length: 32, notNull: true, unique:true},
 			password: {notNull: true},
 			roles: {length: 10240},
@@ -345,8 +345,8 @@ RufsMicroService.tablesRufs = {
 	},
 	rufsGroupUser: {
 		properties: {
-			rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: {table: "rufsUser", field: "id"}},
-			rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: {table: "rufsGroup", field: "id"}}
+			rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: [{table: "rufsUser", field: "id"}]},
+			rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: [{table: "rufsGroup", field: "id"}]}
 		}
 	}
 };

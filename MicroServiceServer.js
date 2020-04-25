@@ -124,7 +124,8 @@ class MicroServiceServer {
 			}
 		}
 
-		console.log(`curl -X '${req.method}' ${req.originalUrl} -d '${JSON.stringify(req.body)}'`);
+		console.log(`curl -X '${req.method}' ${req.originalUrl} -d '${JSON.stringify(req.body)}' -H 'Authorization: ${req.get("Authorization")}' -H 'Connection: ${req.get("Connection")}' -H 'content-type: ${req.get("content-type")}' -H 'Accept: ${req.get("Accept")}' --compressed`);
+		//  -H 'Origin: http://localhost:8080' -H 'Sec-Fetch-Site: same-origin' -H 'Sec-Fetch-Mode: cors' -H 'Referer: http://localhost:8080/crud/' -H 'Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
 
 		res.header("Access-Control-Allow-Origin", "*");
 		res.header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS, POST, DELETE");
@@ -306,25 +307,7 @@ class MicroServiceServer {
 			}
 			//
 			if (field.foreignKeysImport != undefined) {
-				if (Array.isArray(field.foreignKeysImport) == true) {
-					if (field.foreignKeysImport.length > 1) {
-						for (let i = 0; i < field.foreignKeysImport.length; i++) {
-							let item = field.foreignKeysImport[i];
-
-							if (item.field == "rufsGroupOwner") {
-								field.foreignKeysImport.splice(i, 1);
-							}
-						}
-					}
-
-					if (field.foreignKeysImport.length > 1) {
-						console.error(`rufsServiceDbSync.generateJsonSchema() : table [${schemaName}], field [${fieldName}], conflict foreignKeysImport : `, field.foreignKeysImport);
-					}
-
-					jsonBuilderValue["foreignKeysImport"] = field.foreignKeysImport[0];
-				} else {
-					jsonBuilderValue["foreignKeysImport"] = field.foreignKeysImport;
-				}
+				jsonBuilderValue["foreignKeysImport"] = field.foreignKeysImport;
 			}
 
 			jsonBuilderValue["primaryKey"] = field.primaryKey;
@@ -396,6 +379,9 @@ class MicroServiceServer {
 
 		const schema = {};
 		schema.properties = jsonBuilder;
+		schema.primaryKeys = schemaNew.primaryKeys;
+		schema.uniqueKeys = schemaNew.uniqueKeys;
+		schema.foreignKeys = schemaNew.foreignKeys;
 		// TODO : temporary
 		schema.fields = schema.properties;
 		return schema;

@@ -1,5 +1,5 @@
 import {CaseConvert} from "./CaseConvert.js";
-import {DataStoreItem} from "./DataStore.js";
+import {DataStoreItem, DataStoreManager} from "./DataStore.js";
 
 class HttpRestRequest {
 
@@ -123,7 +123,7 @@ class HttpRestRequest {
 class RufsService extends DataStoreItem {
 
 	constructor(serverConnection, params, httpRest) {
-		super(params.name, params.fields);
+		super(params.name, params.schema);
 		this.httpRest = httpRest;
         this.serverConnection = serverConnection;
         this.params = params;
@@ -208,10 +208,10 @@ class RufsService extends DataStoreItem {
 	
 }
 
-class ServerConnection {
+class ServerConnection extends DataStoreManager {
 
 	constructor() {
-    	this.services = {};
+    	super();
     	this.pathname = "";
 	}
 
@@ -268,12 +268,11 @@ class ServerConnection {
 		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
-    	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri})
-    	.then(loginResponse => {
+    	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri}).
+    	then(loginResponse => {
     		this.title = loginResponse.title;
     		this.user = loginResponse.user;
     		this.httpRest.setToken(loginResponse.authctoken);
-    		const listQueryRemote = [];
             // depois carrega os serviços autorizados
             for (let params of loginResponse.rufsServices) {
             	if (params != null) {
@@ -294,12 +293,27 @@ class ServerConnection {
 					if (service.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) service.fields.rufsGroupOwner.hiden = true;
 					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.default == undefined) service.fields.rufsGroupOwner.default = this.user.rufsGroupOwner;
 					this.services[service.name] = service;
-
-					if (service.params.access.query == true) {
-						listQueryRemote.push(service);
-					}
             	}
             }
+
+            const listDependencies = [];
+
+    		for (let serviceName in this.services) {
+    			if (listDependencies.includes(serviceName) == false) {
+    				listDependencies.push(serviceName);
+	    			this.getDependencies(serviceName, listDependencies);
+    			}
+    		}
+
+    		const listQueryRemote = [];
+
+    		for (let serviceName of listDependencies) {
+    			const service = this.services[serviceName];
+
+				if (service.params.access.query == true) {
+					listQueryRemote.push(service);
+				}
+    		}
 
             return new Promise((resolve, reject) => {
             	var queryRemoteServices = () => {
@@ -330,11 +344,6 @@ class ServerConnection {
         for (let serviceName in this.services) {
         	delete this.services[serviceName];
         }
-    }
-    // devolve o rufsService apontado por field
-    getForeignImportRufsService(field) { // foreignKeysImport : [{table, field}]
-    	let serviceName = field.foreignKeysImport.table;
-        return this.services[serviceName];
     }
 
 }

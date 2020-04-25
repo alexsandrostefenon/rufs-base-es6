@@ -16,8 +16,8 @@ class AuthenticationMicroService extends RufsMicroService {
 		loginResponse.user = user;
 
 		if (user.rufsGroupOwner) {
-			const foreignKey = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", user);
-			const rufsGroupOwner = Filter.findOne(this.listGroupOwner, foreignKey);
+			const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);
+			const rufsGroupOwner = Filter.findOne(this.listGroupOwner, item.primaryKey);
 			if (rufsGroupOwner != null) loginResponse.title = rufsGroupOwner.name + " - " + user.name;
 		}
 

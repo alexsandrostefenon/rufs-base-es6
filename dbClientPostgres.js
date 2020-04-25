@@ -9,6 +9,13 @@ var types = pg.types
 types.setTypeParser(1700, 'text', parseFloat);
 types.setTypeParser(1114, str => new Date(str + "+0000"));
 
+class SgdbmAdapter {
+	
+	constructor(config) {
+
+	}
+}
+
 class DbClientPostgres {
 
 	constructor(dbConfig) {
@@ -204,75 +211,86 @@ class DbClientPostgres {
 			return result.rows[0]
 		});
 	}
-	
-	getTablesInfo() {
-		const foreignKeysExportUsage = () => {
-			return this.client.query("SELECT * FROM information_schema.constraint_column_usage").then(result => {
-				let mapForeignKeysExport = new Map();
-				
-				for (let rec of result.rows) {
-					if (rec.constraintName.includes("_fkey") || rec.constraintName.includes("_fk")) {
-						const table = CaseConvert.underscoreToCamel(rec.tableName, false);
-						const field = CaseConvert.underscoreToCamel(rec.columnName, false);
-						const foreignKey = {table, field};
-						
-						if (mapForeignKeysExport.has(rec.constraintName) == true) {
-							mapForeignKeysExport.get(rec.constraintName).push(foreignKey);
-						} else {
-							mapForeignKeysExport.set(rec.constraintName, [foreignKey]);
-						}
-					}
-				}
-				
-				return mapForeignKeysExport;
-			}).catch(err => {
-				console.error(`DbClientPostgres.getTablesInfo().foreignKeysExportUsage() : EntityClass.getDeclaredFields.find(COLUMNS) : ${err.message}`);
-				throw err;
-			});
-		};
-		
-		const foreignKeysImportUsage = (mapTables, mapForeignKeysExport) => {
-			return this.client.query("SELECT * FROM information_schema.key_column_usage").then(result => {
-				for (let rec of result.rows) {
-					const tableName = CaseConvert.underscoreToCamel(rec.tableName, false);
-					
-					if (mapTables.has(tableName) == true) {
-						const entityClass = mapTables.get(tableName);
-						const fieldName = CaseConvert.underscoreToCamel(rec.columnName, false);
-						
-						if (entityClass.properties.has(fieldName) == true) {
-							const field = entityClass.properties.get(fieldName);
-							// select table_name,column_name,constraint_name from information_schema.constraint_column_usage order by table_name,column_name,constraint_name;
-							if (rec.constraintName.endsWith("_pkey") || rec.constraintName.endsWith("_pk")) {
-								field.primaryKey = true; // true,false
-							} else if (rec.constraintName.includes("_fkey") || rec.constraintName.includes("_fk")) {
-								if (field.foreignKeysImport == undefined) field.foreignKeysImport = [];
-								let list = mapForeignKeysExport.get(rec.constraintName); 
-								if (list != undefined) list.forEach(item => field.foreignKeysImport.push(item));
-							} else if (rec.constraintName.endsWith("_key")) {
-								field.unique = rec.constraintName;
-							} else {
-								if (field.foreignKeysImport == undefined) field.foreignKeysImport = [];
-								let list = mapForeignKeysExport.get(rec.constraintName); 
-								if (list != undefined) list.forEach(item => field.foreignKeysImport.push(item));
-//								console.error(`DbClientPostgres.getTablesInfo().foreignKeysImportUsage() : unknow constraintName ${rec.constraintName} from fieldName ${fieldName} from table ${tableName}, full rec : ${JSON.stringify(rec)}`);
-							}
-						} else {
-							console.error(`DbClientPostgres.getTablesInfo().foreignKeysImportUsage() : unknow type from fieldName ${fieldName} from table ${tableName} : rec : ${JSON.stringify(rec)}`);
-						}
-					} else {
-						console.error(`DbClientPostgres.getTablesInfo().foreignKeysImportUsage() : unknow types from table ${tableName} : rec : ${JSON.stringify(rec)}`);
-					}
-				}
 
-//				console.log(`DbClientPostgres.getTablesInfo() : response :`, mapTables);
-				return mapTables;
-			}).catch(err => {
-				console.error(`DbClientPostgres.getTablesInfo().foreignKeysImportUsage() : EntityClass.getDeclaredFields.find(COLUMNS) : ${err.message}`);
+	getOpenApi() {
+		const processConstraints = mapTables => {
+			return this.client.query("SELECT table_name,constraint_name,constraint_type FROM information_schema.table_constraints ORDER BY table_name").
+			then(result => {
+				return this.client.query("SELECT constraint_name,table_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position").
+				then(resultFields => {
+					return this.client.query("SELECT constraint_name,table_name,column_name FROM information_schema.constraint_column_usage").
+					then(resultFieldsRef => {
+						for (let [schemaName, schemaDb] of Object.entries(mapTables.definitions)) {
+							schemaDb.primaryKeys = [];
+							schemaDb.foreignKeys = {};
+							schemaDb.uniqueKeys = {};
+							const tableName = CaseConvert.camelToUnderscore(schemaName);
+							const constraints = result.rows.filter(item => item.tableName == tableName);
+
+							for (let constraint of constraints) {
+								const constraintName = constraint.constraintName;
+								const name = CaseConvert.underscoreToCamel(constraintName, false);
+								const list = resultFields.rows.filter(item => item.constraintName == constraintName);
+								const listRef = resultFieldsRef.rows.filter(item => item.constraintName == constraintName);
+
+								if (constraint.constraintType == "FOREIGN KEY") {
+									const foreignKey = {fields: [], fieldsRef: []};//requestFreight_RufsGroupOwner_Request_Fkey : {fields: ["rufsGroupOwner", "request"], tableRef: "request", fieldsRef: ["rufsGroupOwner", "id"]};
+									schemaDb.foreignKeys[name] = foreignKey;
+
+									for (let item of list) {
+										const columnName = CaseConvert.underscoreToCamel(item.columnName, false);
+										foreignKey.fields.push(columnName);
+									}
+
+									for (let itemRef of listRef) {
+										const columnName = CaseConvert.underscoreToCamel(itemRef.columnName, false);
+										foreignKey.fieldsRef.push(columnName);
+										const tableName = CaseConvert.underscoreToCamel(itemRef.tableName, false);
+										foreignKey.tableRef = tableName;
+									}
+
+									for (let i = 0; i < foreignKey.fields.length; i++) {
+										const field = schemaDb.properties[foreignKey.fields[i]];
+										if (field.foreignKeysImport == undefined) field.foreignKeysImport = [];
+										field.foreignKeysImport.push({name: name, table: foreignKey.tableRef, field: foreignKey.fieldsRef[i]});
+									}
+								} else if (constraint.constraintType == "UNIQUE") {
+									schemaDb.uniqueKeys[name] = [];
+
+									for (let item of list) {
+										const columnName = CaseConvert.underscoreToCamel(item.columnName, false);
+										schemaDb.uniqueKeys[name].push(columnName);
+									}
+								} else if (constraint.constraintType == "PRIMARY KEY") {
+									for (let item of list) {
+										const columnName = CaseConvert.underscoreToCamel(item.columnName, false);
+										schemaDb.primaryKeys.push(columnName);
+									}
+								}
+							}
+
+							for (let [fieldName, field] of Object.entries(schemaDb.properties)) {
+								if (field.foreignKeysImport != undefined) {
+									for (let item of field.foreignKeysImport) {
+										if (fieldName.startsWith(item.table) == true) {
+											field.foreignKeysImport = [item];
+											break;
+										}
+									}
+								}
+							}
+						}
+
+						return mapTables;
+					});
+				});
+			}).
+			catch(err => {
+				console.error(`this.constructor.name.getTablesInfo.processConstraints : ${err.message}`);
 				throw err;
 			});
-		};
-		
+		}
+
 		const processColumns = () => {
 			let sqlGetComments = 
 				"select c.*,left(pgd.description,100) as description " +
@@ -281,7 +299,7 @@ class DbClientPostgres {
 				"right outer join information_schema.columns c on (pgd.objsubid=c.ordinal_position and  c.table_schema=st.schemaname and c.table_name=st.relname) " +
 				"where table_schema = 'public' order by c.table_name,c.ordinal_position";
 			return this.client.query(sqlGetComments).then(result => {
-				let mapTables = new Map();
+				let mapTables = {definitions: {}};
 
 				for (let rec of result.rows) {
 					let typeIndex = this.sqlTypes.indexOf(rec.dataType);
@@ -290,12 +308,12 @@ class DbClientPostgres {
 						const tableName = CaseConvert.underscoreToCamel(rec.tableName, false);
 						let entityClass;
 
-						if (mapTables.has(tableName) == true) {
-							entityClass = mapTables.get(tableName);
+						if (mapTables.definitions[tableName] != undefined) {
+							entityClass = mapTables.definitions[tableName];
 						} else {
 							entityClass = {};
-							entityClass.properties = new Map();
-							mapTables.set(tableName, entityClass);
+							entityClass.properties = {};
+							mapTables.definitions[tableName] = entityClass;
 						}
 
 						const fieldName = CaseConvert.underscoreToCamel(rec.columnName, false);
@@ -325,7 +343,7 @@ class DbClientPostgres {
 						field.identityGeneration = rec.identityGeneration; // BY DEFAULT,ALWAYS
 						// SERIAL TYPE
 						if (rec.default != undefined && rec.default.startsWith("nextval")) field.identityGeneration = "BY DEFAULT";
-						entityClass.properties.set(fieldName, field);
+						entityClass.properties[fieldName] = field;
 					} else {
 						console.error(`DbClientPostgres.getTablesInfo().processColumns() : Invalid Database Type : ${rec.dataType}, full rec : ${JSON.stringify(rec)}`);
 					}
@@ -336,27 +354,7 @@ class DbClientPostgres {
 		};
 
 		return processColumns().
-		then(mapTables => foreignKeysExportUsage(mapTables).then(mapForeignKeysExport => foreignKeysImportUsage(mapTables, mapForeignKeysExport)));
-	}
-
-	getOpenApi() {
-		return this.getTablesInfo().then(mapTables => {
-			const openapi = {};
-			openapi.definitions = {};
-
-			for (let [name, schemaDb] of mapTables) {
-				const schemaObj = {};
-				schemaObj.properties = {};
-
-				for (let [fieldName, field] of schemaDb.properties) {
-					schemaObj.properties[fieldName] = field;
-				}
-
-				openapi.definitions[name] = schemaObj;
-			}
-
-			return openapi;
-		});
+		then(mapTables => processConstraints(mapTables));
 	}
 
 }

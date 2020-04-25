@@ -2,37 +2,13 @@ import fs from "fs";
 import jwt from "jsonwebtoken";
 import {Response} from "./server-utils.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
-import {Filter} from "./webapp/es6/DataStore.js";
+import {DataStoreManager, Filter} from "./webapp/es6/DataStore.js";
 import {RufsSchema} from "./webapp/es6/DataStore.js";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 
 const fsPromises = fs.promises;
 
 class RequestFilter {
-	static getForeignKeyEntries(serviceName, foreignServiceName) {
-		const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
-		let foreignKeyEntries = [];
-
-		for (let [fieldName, field] of Object.entries(service.fields)) {
-			if (field.foreignKeysImport != undefined && field.foreignKeysImport.table == foreignServiceName) {
-				foreignKeyEntries.push({fieldName, field});
-			}
-		}
-
-		return foreignKeyEntries;
-	}
-
-	static getForeignKey(serviceName, foreignServiceName, obj) {
-		const foreignKeyEntries = RequestFilter.getForeignKeyEntries(serviceName, foreignServiceName);
-		let foreignKey = {};
-
-		for (let foreignKeyEntry of foreignKeyEntries) {
-			foreignKey[foreignKeyEntry.field.foreignKeysImport.field] = obj[foreignKeyEntry.fieldName];
-		}
-
-		return foreignKey;
-	}
-
 // private to create,update,delete,read
 	static checkObjectAccess(tokenData, serviceName, obj) {
 		let service;
@@ -44,26 +20,23 @@ class RequestFilter {
 		}
 
 		let response = null;
-		const userRufsGroupOwner = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", tokenData);
-		const rufsGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroupOwner");
+		const userRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
+		const rufsGroupOwnerEntries = RequestFilter.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
 
-		if (userRufsGroupOwner.id > 1 && rufsGroupOwnerEntries.length > 0) {
-			const objRufsGroupOwner = RequestFilter.getForeignKey(serviceName, "rufsGroupOwner", obj);
+		if (userRufsGroupOwner != undefined && userRufsGroupOwner.primaryKey.id > 1 && rufsGroupOwnerEntries.length > 0) {
+			const objRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
 
-			if (objRufsGroupOwner.id == undefined) {
-				obj.rufsGroupOwner = userRufsGroupOwner.id;
-				objRufsGroupOwner.id = userRufsGroupOwner.id;
+			if (objRufsGroupOwner == undefined) {
+				obj.rufsGroupOwner = userRufsGroupOwner.primaryKey.id;
+				objRufsGroupOwner = {primaryKey: {}};
+				objRufsGroupOwner.primaryKey.id = userRufsGroupOwner.primaryKey.id;
 			}
 
-			if (objRufsGroupOwner.id == userRufsGroupOwner.id) {
-				const rufsGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroup");
+			if (objRufsGroupOwner.primaryKey.id == userRufsGroupOwner.primaryKey.id) {
+				const rufsGroup = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
 
-				if (rufsGroupEntries.length > 0) {
-					const rufsGroup = RequestFilter.getForeignKey(serviceName, "rufsGroup", obj);
-
-					if (tokenData.groups.indexOf(rufsGroup.id) < 0) {
-						response = Response.unauthorized("unauthorized object rufsGroup");
-					}
+				if (rufsGroup != undefined && tokenData.groups.indexOf(rufsGroup.primaryKey.id) < 0) {
+					response = Response.unauthorized("unauthorized object rufsGroup");
 				}
 			} else {
 				response = Response.unauthorized("unauthorized object rufsGroupOwner");
@@ -106,29 +79,25 @@ class RequestFilter {
 				// One To One
 				{
 					const service = RequestFilter.getService(tokenData, serviceName);
-					
+
 					for (let [fieldName, field] of Object.entries(service.fields)) {
 						if (field.foreignKeysImport != undefined) {
-							let item = field.foreignKeysImport;
-							
+							const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign(service, fieldName, obj);
+
 							if (tokenData.roles[item.table] != undefined) {
-								// neste caso, valRef contém o id do registro de referência
-								const rufsServiceOther = RequestFilter.getService(tokenData, item.table);
-								// dataForeign, fieldNameForeign, fieldName
-								const primaryKey = rufsServiceOther.getPrimaryKeyFromForeignData(obj, fieldName, item.field);
-								promises.push(entityManager.findOne(item.table, primaryKey).then(objExternal => obj[fieldName] = objExternal));
+								promises.push(entityManager.findOne(item.table, item.primaryKey).then(objExternal => obj[fieldName] = objExternal));
 							}
 						}
 					}
 				}
 				// One To Many
 				{
-					const dependents = RufsSchema.getDependents(RequestFilter.listService, serviceName, true);
+					const dependents = RequestFilter.dataStoreManager.getDependents(serviceName, true);
 
 					for (let item of dependents) {
 						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
 						let field = rufsServiceOther.fields[item.field];
-						let foreignKey = RufsSchema.getForeignKeyFromPrimaryKeyForeign(rufsServiceOther, obj, item.field);
+						let foreignKey = RequestFilter.dataStoreManager.getForeignKey(rufsServiceOther, item.field, obj);
 						promises.push(entityManager.find(item.table, foreignKey).then(list => obj[field.document] = list));
 					}
 				}
@@ -196,8 +165,8 @@ class RequestFilter {
 	static parseQueryParameters(tokenData, serviceName, queryParameters, onlyPrimaryKey) {
 		// se não for admin, limita os resultados para as rufsGroup vinculadas a empresa do usuário
 		const userRufsGroupOwner = tokenData.rufsGroupOwner;
-		const rufsGroupOwnerEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroupOwner");
-		const rufsGroupEntries = RequestFilter.getForeignKeyEntries(serviceName, "rufsGroup");
+		const rufsGroupOwnerEntries = RequestFilter.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
+		const rufsGroupEntries = RequestFilter.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroup");
 
 		if (userRufsGroupOwner > 1) {
 			if (rufsGroupOwnerEntries.length > 0) queryParameters[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
@@ -340,25 +309,16 @@ class RequestFilter {
 		catch(err => {
 			console.error(err);
 			return Response.unauthorized(err.msg);
+		}).
+		then(response => {
+			if (uriPath != "query") console.log(response);
+			return response;
 		});
 	}
 	// This method sends the same Bidding object to all opened sessions
 	static notify(microService, obj, serviceName, isRemove) {
         const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
-
-		let getPrimaryKey = () => {
-			let primaryKeyBuilder = {};
-			
-			for (let [fieldName, field] of Object.entries(service.fields)) {
-				if (field["primaryKey"] == true) {
-					primaryKeyBuilder[fieldName] = obj[fieldName];
-				}
-			}
-			
-			return primaryKeyBuilder;
-		};
-		
-		let primaryKey = getPrimaryKey();
+		const primaryKey = service.getPrimaryKey(obj);
 		var msg = {};
 		msg.service = serviceName;
 		msg.primaryKey = primaryKey;
@@ -370,18 +330,18 @@ class RequestFilter {
 		}
 
 		let str = JSON.stringify(msg);
-		const objRufsGroupOwner = RequestFilter.getForeignKey(serviceName, "rufsGroupOwner", obj);
-		const rufsGroup = RequestFilter.getForeignKey(serviceName, "rufsGroup", obj);
+		const objRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
+		const rufsGroup = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
 		console.log("[RequestFilter.notify] broadcasting...", msg);
 
 		for (let [userName, wsServerConnection] of microService.wsServerConnections) {
 			let tokenData = wsServerConnection.token;
-			const userRufsGroupOwner = RequestFilter.getForeignKey("rufsUser", "rufsGroupOwner", tokenData);
+			const userRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
 			// enviar somente para os clients de "rufsGroupOwner"
-			let checkRufsGroupOwner = objRufsGroupOwner.id == undefined || objRufsGroupOwner.id == userRufsGroupOwner.id;
-			let checkRufsGroup = rufsGroup.id == undefined || tokenData.groups.indexOf(rufsGroup.id) >= 0;
+			let checkRufsGroupOwner = objRufsGroupOwner == undefined || objRufsGroupOwner.primaryKey.id == userRufsGroupOwner.primaryKey.id;
+			let checkRufsGroup = rufsGroup == undefined || tokenData.groups.indexOf(rufsGroup.primaryKey.id) >= 0;
 			// restrição de rufsGroup
-			if (userRufsGroupOwner.id == 1 || (checkRufsGroupOwner && checkRufsGroup)) {
+			if (userRufsGroupOwner.primaryKey.id == 1 || (checkRufsGroupOwner && checkRufsGroup)) {
 				let role = tokenData.roles[serviceName];
 
 				if (role != undefined && role.read != false) {
@@ -400,7 +360,8 @@ class RequestFilter {
         return Promise.resolve().then(() => {
 			RequestFilter.listService = [];
 			// TODO : trocar openapi.definitions por openapi.paths
-        	for (let name in openapi.definitions) RequestFilter.listService.push(new RufsSchema(name, openapi.definitions[name].properties));
+        	for (let name in openapi.definitions) RequestFilter.listService.push(new RufsSchema(name, openapi.definitions[name]));
+        	RequestFilter.dataStoreManager = new DataStoreManager(RequestFilter.listService);
         });
 	}
 
