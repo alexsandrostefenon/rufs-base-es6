@@ -6,7 +6,6 @@ import {MicroServiceServer} from "./MicroServiceServer.js";
 const fsPromises = fs.promises;
 // TODO : only until nodejs needs custom-loader.mjs to resolve import(module)
 import pg from "pg";
-import pgCamelCase from "pg-camelcase";
 import { runInNewContext } from "vm";
 
 class RufsProxy {

@@ -1,5 +1,7 @@
 import pg from "pg";
 import pgCamelCase from "pg-camelcase";
+import Firebird from "node-firebird";
+import FirebirdNative from "node-firebird";//firebird
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 
 var revertCamelCase = pgCamelCase.inject(pg);
@@ -9,22 +11,118 @@ var types = pg.types
 types.setTypeParser(1700, 'text', parseFloat);
 types.setTypeParser(1114, str => new Date(str + "+0000"));
 
-class SgdbmAdapter {
-	
-	constructor(config) {
+class SqlAdapterNodeFirebird {
 
+	constructor(config) {
+		this.config = config;
 	}
+
+	connect() {
+		return new Promise((resolve, reject) => {
+			Firebird.attach({database: "/var/CLIPP-3.fdb", user: "SYSDBA", password: "masterkey"}, (err, db) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(db);
+				}
+			});
+		}).
+		then(db => this.client = db);
+	}
+
+	end() {
+		return this.client.detach();
+	}
+
+	query(sql, params){
+		sql = sql.replace(/\$\d+/g, "?");
+		return new Promise((resolve, reject) => {
+			this.client.query(sql, params, (err, result) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(result);
+				}
+			});
+		}).
+		then(result => {
+			ret = {rowCount: result.length, rows: result};
+			return ret;
+		});
+	}
+
+}
+
+class SqlAdapterFirebirdNative {
+
+	constructor(config) {
+		this.config = config;
+	}
+
+	connect() {
+		return new Promise((resolve, reject) => {
+			const con = FirebirdNative.createConnection();
+			con.connect(this.config.database, this.config.user, this.config.password, "", (err) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(con);
+				}
+			});
+		}).
+		then(db => this.client = db);
+	}
+
+	end() {
+		return this.client.disconnect();
+	}
+
+	query(sql, params){
+		sql = sql.replace(/\$\d+/g, "?");
+		return new Promise((resolve, reject) => {
+			this.client.query(sql, params, (err, result) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(result);
+				}
+			});
+		}).
+		then(result => {
+			const rows = result.fetchSync("all", true);
+			return {rowCount: rows.length, rows: rows};
+		});
+	}
+
+}
+
+class SqlAdapterPostgres {
+
+	constructor(config) {
+		config.max = 10; // max number of clients in the pool
+		config.idleTimeoutMillis = 30000; // how long a client is allowed to remain idle before being closed
+		this.client = new pg.Client(config);
+	}
+
+	connect() {
+		return this.client.connect();
+	}
+
+	end() {
+		return this.client.end();
+	}
+
+	query(sql, params){
+		return this.client.query(sql, params);
+	}
+
 }
 
 class DbClientPostgres {
 
 	constructor(dbConfig) {
 		this.limitQuery = 10 * 1000;
-		
-		this.dbConfig = {
-		  max: 10, // max number of clients in the pool
-		  idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
-		};
+		this.dbConfig = {};
 
 		if (dbConfig != undefined) {
 			if (dbConfig.host != undefined) this.dbConfig.host = dbConfig.host;
@@ -38,7 +136,12 @@ class DbClientPostgres {
 		}
 		//connect to our database
 		//env var: PGHOST,PGPORT,PGDATABASE,PGUSER,PGPASSWORD
-		this.client = new pg.Client(this.dbConfig);
+		if (this.dbConfig.database != undefined && this.dbConfig.database.endsWith(".fdb")) {
+			this.client = new SqlAdapterNodeFirebird(this.dbConfig);
+		} else {
+			this.client = new SqlAdapterPostgres(this.dbConfig);
+		}
+
 		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date", "double precision", "bytea"];
 		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "numeric", "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "date", "numeric"         , "string"];
 	}
@@ -118,7 +221,8 @@ class DbClientPostgres {
 			return result.rows[0];
 		}).
 		catch(err => {
-			err.message = err.message + ` sql : ${sql} : ${params}`;
+			err.message = err.message + `\nsql : ${sql}\nparams : ${JSON.stringify(params)}`;
+			console.error(`[${this.constructor.name}.insert(${tableName}, ${JSON.stringify(createObj)})] :`, err.message);
 			throw err;
 		});
 	}
@@ -270,7 +374,7 @@ class DbClientPostgres {
 							}
 
 							for (let [fieldName, field] of Object.entries(schemaDb.properties)) {
-								if (field.foreignKeysImport != undefined) {
+								if (field.foreignKeysImport != undefined && Array.isArray(field.foreignKeysImport)) {
 									for (let item of field.foreignKeysImport) {
 										if (fieldName.startsWith(item.table) == true) {
 											field.foreignKeysImport = [item];

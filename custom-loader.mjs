@@ -9,7 +9,7 @@ const JS_EXTENSIONS = new Set(['.js', '.mjs']);
 const historyMap = {};
 
 export function resolve(specifier, parentModuleURL, defaultResolve) {
-//	console.log("----------------------------------------------------------------");
+///	console.log("----------------------------------------------------------------");
 ///	console.log("__dirname:", __dirname);
 ///	console.log("__filename:", __filename);
 	let ret;
@@ -49,6 +49,6 @@ export function resolve(specifier, parentModuleURL, defaultResolve) {
 		ret = {url: resolved.href, format: 'esm'};
 	}
 
-//	console.log(`${parentModuleURL} : ${specifier} :`, JSON.stringify(ret));
+//	console.log(`parentModuleURL : ${parentModuleURL}\nspecifier : ${specifier}\nret : ${JSON.stringify(ret)}`);
 	return ret;
 }

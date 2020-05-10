@@ -54,13 +54,19 @@ class RufsServiceDbSync {
 		// TODO : refatorar (Array field.foreignKeysImport) para (Map shema.foreignKeysImport), onde a chave do mapa é o nome da chave estrangeira definida pelo SGDB
 		const ret = [];
 
-		for (let item of field.foreignKeysImport) {
-			let tableOut = CaseConvert.camelToUnderscore(item.table);
-			let fieldOut = CaseConvert.camelToUnderscore(item.field);
-	//		console.log(`RufsServiceDbSync.genSqlForeignKey(${fieldName}) : item.table : ${item.table}, mapTables[item.table] : ${mapTables[item.table]}`);
-			const foreignSchema = mapTables.definitions[item.table];
-			const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}(${fieldOut})`;
+		if (Array.isArray(field.foreignKeysImport) == true) {
+			for (let item of field.foreignKeysImport) {
+				let tableOut = CaseConvert.camelToUnderscore(item.table);
+				let fieldOut = CaseConvert.camelToUnderscore(item.field);
+				const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}(${fieldOut})`;
+				ret.push(str);
+			}
+		} else if (typeof(field.foreignKeysImport) == "string") {
+			let tableOut = CaseConvert.camelToUnderscore(field.foreignKeysImport);
+			const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
 			ret.push(str);
+		} else {
+			throw new Error(`[${this.constructor.name}.genSqlForeignKey(${fieldName})] : invalid 'field.foreignKeysImport'`);
 		}
 
 		return ret.join(",");
@@ -177,7 +183,7 @@ class RufsMicroService extends MicroServiceServer {
 			});
 		}
 
-		return this.constructor.loadOpenApi().
+		return this.loadOpenApi().
 		then(openapi => this.fileDbAdapter = new FileDbAdapter(openapi)).
 		then(() => loadTable("rufsGroup", [])).
 		then(rows => this.listGroup= rows).
@@ -273,12 +279,12 @@ class RufsMicroService extends MicroServiceServer {
 						const v2 = newVersion % 1000n;
 						newVersion /= 1000n;
 						openapi.info.version = `${newVersion}.${v2}.${v3}`;
-						return this.constructor.storeOpenApi(openapi);
+						return this.storeOpenApi(openapi);
 					}).
 					then(() => migrate(openapi, list));
 				};
 
-				return this.constructor.loadOpenApi().
+				return this.loadOpenApi().
 				then(openapi => {
 					const oldVersion = getVersion(openapi.info.version);
 					return fsPromises.readdir(`${this.config.migrationPath}`).
@@ -291,7 +297,7 @@ class RufsMicroService extends MicroServiceServer {
 			return execMigrations().
 			then(() => this.entityManager.getOpenApi()).
 			then(openApiDb => {
-				return this.constructor.loadOpenApi().
+				return this.loadOpenApi().
 				then(openapi => {
 					for (let name in RufsMicroService.tablesRufs) if (openApiDb.definitions[name] == undefined) openApiDb.definitions[name] = RufsMicroService.tablesRufs[name];
 
@@ -299,7 +305,7 @@ class RufsMicroService extends MicroServiceServer {
 						openapi.definitions[name] = this.constructor.updateJsonSchema(name, schemaDb, openapi.definitions[name]);
 					}
 
-					return this.constructor.storeOpenApi(openapi);
+					return this.storeOpenApi(openapi);
 				});
 			});
 		}
@@ -323,31 +329,37 @@ RufsMicroService.tablesRufs = {
 		properties: {
 			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
 			name: {notNull: true, unique:true}
-		}
+		},
+		"primaryKeys": ["id"]
 	},
 	rufsUser: {
 		properties: {
 			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-			rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: [{table: "rufsGroupOwner", field: "id"}]},
+			rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: "rufsGroupOwner"},
 			name: {length: 32, notNull: true, unique:true},
 			password: {notNull: true},
 			roles: {length: 10240},
 			routes: {length: 10240},
 			path: {},
 			menu: {length: 10240}
-		}
+		},
+		"primaryKeys": ["id"],
+		"uniqueKeys": {}
 	},
 	rufsGroup: {
 		properties: {
 			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
 			name: {notNull: true, unique:true}
-		}
+		},
+		"primaryKeys": ["id"]
 	},
 	rufsGroupUser: {
 		properties: {
-			rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: [{table: "rufsUser", field: "id"}]},
-			rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: [{table: "rufsGroup", field: "id"}]}
-		}
+			rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: "rufsUser"},
+			rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: "rufsGroup"}
+		},
+		"primaryKeys": ["rufsUser", "rufsGroup"],
+		"uniqueKeys": {}
 	}
 };
 

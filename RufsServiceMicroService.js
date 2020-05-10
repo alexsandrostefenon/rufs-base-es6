@@ -9,7 +9,7 @@ class RufsServiceMicroService extends RufsMicroService {
 
 	update(req, res, next, resource, action) {
 		const name = req.query.name;
-		return this.constructor.loadOpenApi().
+		return this.loadOpenApi().
 		then(openapi => {
 			const schemaOld = openapi.definitions[name];
 			const schema = req.body;

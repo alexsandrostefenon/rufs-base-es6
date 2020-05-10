@@ -4,10 +4,12 @@
   "version": "1.0.0",
   "dependencies": {
     "express": "^4.17.1",
-    "websocket": "^1.0.28",
+    "websocket": "^1.0.31",
     "node-fetch": "^1.7.3",
     "pg": "^7.14.0",
     "jsonwebtoken": "^8.5.1",
+    "redbird": "^0.9.1",
+    "node-firebird": "^0.8.9",
     "pg-camelcase": "^0.0.3"
   }
 }

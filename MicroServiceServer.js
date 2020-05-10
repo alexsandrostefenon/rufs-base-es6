@@ -28,6 +28,7 @@ class MicroServiceServer {
 
 			if (arg.startsWith(baseAndValue)) {
 				value = arg.substring(baseAndValue.length);
+				console.log(`[MicroServiceServer.getArg(name: ${name}, defaultValue: ${defaultValue})] : ${value}`);
 				break;
 			}
 		}
@@ -202,8 +203,8 @@ class MicroServiceServer {
 		});
 	}
 
-	static loadOpenApi() {
-		return fsPromises.readFile("openapi.json").
+	loadOpenApi() {
+		return fsPromises.readFile(`openapi-${this.config.appName}.json`).
 		then(text => JSON.parse(text)).
 		catch(() => {
 			const openapi = {
@@ -213,7 +214,8 @@ class MicroServiceServer {
 			};
 
 			return openapi;
-		}).then(openapi => {
+		}).
+		then(openapi => {
 			// convert serviceNames from underscore to camel
 			for (let name in openapi.definitions) {
 				const nameCamel = CaseConvert.underscoreToCamel(name);
@@ -244,16 +246,34 @@ class MicroServiceServer {
 			}
 
 			return openapi;
+		}).
+		then(openapi => {
+			if (this.openapi == undefined) return openapi;
+			let isChanged = false;
+
+			for (let [name, newSchema] of Object.entries(this.openapi.definitions)) {
+				const oldSchema = openapi.definitions[name];
+
+				if (oldSchema == undefined || JSON.stringify(oldSchema) != JSON.stringify(newSchema)) {
+					openapi.definitions[name] = newSchema;
+					isChanged = true;
+				}
+			}
+
+			if (isChanged == true)
+				return this.storeOpenApi(openapi);
+			else
+				return openapi;
 		});
 	}
 
-	static storeOpenApi(openapi) {
+	storeOpenApi(openapi) {
 		for (let [name, service] of Object.entries(openapi.definitions)) {
 			delete service.name;
 			if (service.fields != undefined) delete service.fields;
 		}
 
-		return fsPromises.writeFile("openapi.json", JSON.stringify(openapi, null, "\t")).then(() => openapi);
+		return fsPromises.writeFile(`openapi-${this.config.appName}.json`, JSON.stringify(openapi, null, "\t")).then(() => openapi);
 	}
 
 	static updateJsonSchema(schemaName, schemaNew, schemaOld) {

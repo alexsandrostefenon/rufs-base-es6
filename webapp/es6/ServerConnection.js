@@ -273,6 +273,7 @@ class ServerConnection extends DataStoreManager {
     		this.title = loginResponse.title;
     		this.user = loginResponse.user;
     		this.httpRest.setToken(loginResponse.authctoken);
+    		const schemas = [];
             // depois carrega os serviços autorizados
             for (let params of loginResponse.rufsServices) {
             	if (params != null) {
@@ -292,10 +293,11 @@ class ServerConnection extends DataStoreManager {
 					let service = new RufsServiceClass(this, params, this.httpRest);
 					if (service.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) service.fields.rufsGroupOwner.hiden = true;
 					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.default == undefined) service.fields.rufsGroupOwner.default = this.user.rufsGroupOwner;
-					this.services[service.name] = service;
+					schemas.push(service);
             	}
             }
 
+            this.setSchemas(schemas);
             const listDependencies = [];
 
     		for (let serviceName in this.services) {
