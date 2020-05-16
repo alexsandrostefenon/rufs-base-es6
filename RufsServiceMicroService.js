@@ -55,8 +55,7 @@ class RufsServiceMicroService extends RufsMicroService {
 	onRequest(req, res, next, resource, action) {
 		return Promise.resolve().
 		then(() => {
-			let tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
-			let access = RequestFilter.checkAuthorization(tokenPayload, resource, action);
+			let access = RequestFilter.checkAuthorization(req, resource, action);
 			let promise;
 
 			if (access == true) {

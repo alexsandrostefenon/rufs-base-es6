@@ -355,8 +355,13 @@ class DbClientPostgres {
 
 									for (let i = 0; i < foreignKey.fields.length; i++) {
 										const field = schemaDb.properties[foreignKey.fields[i]];
-										if (field.foreignKeysImport == undefined) field.foreignKeysImport = [];
-										field.foreignKeysImport.push({name: name, table: foreignKey.tableRef, field: foreignKey.fieldsRef[i]});
+
+										if (field != undefined) {
+											if (field.foreignKeysImport == undefined) field.foreignKeysImport = [];
+											field.foreignKeysImport.push({name: name, table: foreignKey.tableRef, field: foreignKey.fieldsRef[i]});
+										} else {
+											console.error(`${this.constructor.name}.getTablesInfo.processConstraints : field ${foreignKey.fields[i]} not exists in schema ${schemaName}`);
+										}
 									}
 								} else if (constraint.constraintType == "UNIQUE") {
 									schemaDb.uniqueKeys[name] = [];
@@ -390,7 +395,7 @@ class DbClientPostgres {
 				});
 			}).
 			catch(err => {
-				console.error(`this.constructor.name.getTablesInfo.processConstraints : ${err.message}`);
+				console.error(`${this.constructor.name}.getTablesInfo.processConstraints : ${err.message}`);
 				throw err;
 			});
 		}

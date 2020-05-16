@@ -224,9 +224,10 @@ class RequestFilter {
 		});
 	}
 	// public
-	static checkAuthorization(tokenData, serviceName, uriPath) {
+	static checkAuthorization(req, serviceName, uriPath) {
+		req.tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
 		let access = false;
-		const serviceAuth = tokenData.roles[serviceName];
+		const serviceAuth = req.tokenPayload.roles[serviceName];
 		// verfica a permissao de acesso
 		if (serviceAuth != undefined) {
 			const defaultAccess = {query: true, read: true, create: true, update: false, delete: false, patch: true};
@@ -260,59 +261,41 @@ class RequestFilter {
 	}
 	// processRequest
 	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath, useDocument) {
-		// rufsProcess
-		let rufsProcess = tokenData => {
-			if (microService.fileDbAdapter.fileTables.has(serviceName) == true) {
-				entityManager = microService.fileDbAdapter;
-			} else if (RequestFilter.dbConnMap.get(tokenData.dbConnInfo) != undefined) {
-				entityManager = RequestFilter.dbConnMap.get(tokenData.dbConnInfo);
-				console.log(`[RequestFilter.processRequest] : using connection ${tokenData.dbConnInfo}`);
-			}
+		if (microService.fileDbAdapter.fileTables.has(serviceName) == true) {
+			entityManager = microService.fileDbAdapter;
+		} else if (RequestFilter.dbConnMap.get(req.tokenPayload.dbConnInfo) != undefined) {
+			entityManager = RequestFilter.dbConnMap.get(req.tokenPayload.dbConnInfo);
+			console.log(`[RequestFilter.processRequest] : using connection ${req.tokenPayload.dbConnInfo}`);
+		}
 
-			const queryParams = req.query;
-			let obj = null;
+		const queryParams = req.query;
+		let obj = null;
 
-			if (uriPath == "create" || uriPath == "update" || uriPath == "patch") {
-				obj = req.body;
-			}
+		if (uriPath == "create" || uriPath == "update" || uriPath == "patch") {
+			obj = req.body;
+		}
 
-			let cf;
+		let cf;
 
-			if (uriPath == "create") {
-				cf = RequestFilter.processCreate(tokenData, entityManager, serviceName, obj, microService);
-			} else if (uriPath == "update") {
-				cf = RequestFilter.processUpdate(tokenData, queryParams, entityManager, serviceName, obj, microService);
-			} else if (uriPath == "patch") {
-				cf = RequestFilter.processPatch(tokenData, entityManager, serviceName, obj, microService);
-			} else if (uriPath == "delete") {
-				cf = RequestFilter.processDelete(tokenData, queryParams, entityManager, serviceName, microService);
-			} else if (uriPath == "read") {
-				cf = RequestFilter.processRead(tokenData, queryParams, entityManager, serviceName, useDocument);
-			} else if (uriPath == "query") {
-				cf = RequestFilter.processQuery(tokenData, queryParams, entityManager, serviceName);
-			} else {
-				return Promise.resolve(Response.internalServerError("unknow rote"));
-			}
+		if (uriPath == "create") {
+			cf = RequestFilter.processCreate(req.tokenPayload, entityManager, serviceName, obj, microService);
+		} else if (uriPath == "update") {
+			cf = RequestFilter.processUpdate(req.tokenPayload, queryParams, entityManager, serviceName, obj, microService);
+		} else if (uriPath == "patch") {
+			cf = RequestFilter.processPatch(req.tokenPayload, entityManager, serviceName, obj, microService);
+		} else if (uriPath == "delete") {
+			cf = RequestFilter.processDelete(req.tokenPayload, queryParams, entityManager, serviceName, microService);
+		} else if (uriPath == "read") {
+			cf = RequestFilter.processRead(req.tokenPayload, queryParams, entityManager, serviceName, useDocument);
+		} else if (uriPath == "query") {
+			cf = RequestFilter.processQuery(req.tokenPayload, queryParams, entityManager, serviceName);
+		} else {
+			return Promise.resolve(Response.internalServerError("unknow rote"));
+		}
 
-			return cf.catch(error => {
-				console.log("ProcessRequest error : ", error);
-				return Response.internalServerError(error.message);
-			});
-		};
-
-		return Promise.resolve().
-		then(() => {
-			let tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
-			let access = RequestFilter.checkAuthorization(tokenPayload, serviceName, uriPath);
-			return access == true ? rufsProcess(tokenPayload) : Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
-		}).
-		catch(err => {
-			console.error(err);
-			return Response.unauthorized(err.msg);
-		}).
-		then(response => {
-			if (uriPath != "query") console.log(response);
-			return response;
+		return cf.catch(error => {
+			console.log("ProcessRequest error : ", error);
+			return Response.internalServerError(error.message);
 		});
 	}
 	// This method sends the same Bidding object to all opened sessions

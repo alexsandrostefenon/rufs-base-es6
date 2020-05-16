@@ -4,6 +4,7 @@ import {RequestFilter} from "./RequestFilter.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {FileDbAdapter} from "./FileDbAdapter.js";
+import {Response} from "./server-utils.js";
 
 const fsPromises = fs.promises;
 
@@ -168,8 +169,25 @@ class RufsMicroService extends MicroServiceServer {
 		this.entityManager = new DbClientPostgres(this.config.dbConfig);
 	}
 
+	processRequest(req, resource, action) {
+		return Promise.resolve();
+	}
+
 	onRequest(req, res, next, resource, action) {
-		return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
+		let access = RequestFilter.checkAuthorization(req, resource, action);
+		if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+		let response;
+
+		if (this.openapi != undefined && this.openapi.definitions[resource] != undefined) {
+			response = this.processRequest(req, resource, action).then(data => Response.ok(data));
+		} else {
+			response = RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
+		}
+
+		return response.then(responseData => {
+			if (action != "query") console.log(responseData);
+			return responseData;
+		});
 	}
 
 	loadRufsTables() {

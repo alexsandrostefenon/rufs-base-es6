@@ -259,6 +259,19 @@ class DataStoreManager {
 	}
 
 	getDependencies(serviceName, list) {
+		const processDependency = (dependency, list) => {
+			if (list.includes(dependency) == false) {
+				const service = this.services[dependency];
+
+				if (service != undefined) {
+					list.unshift(dependency);
+					this.getDependencies(dependency, list);
+				} else {
+					console.log(`[${this.constructor.name}.getDependencies(${serviceName})] : don't registred dependency ${dependency}.`);
+				}
+			}
+		}
+
 		if (list == undefined)
 			list = [];
 
@@ -271,20 +284,14 @@ class DataStoreManager {
 
 		for (let [fieldName, field] of Object.entries(service.fields)) {
 			if (field.foreignKeysImport != undefined) {
-				for (let item of field.foreignKeysImport) {
-					const dependency = item.table;
-
-					if (list.includes(dependency) == false) {
-						const service = this.services[dependency];
-
-						if (service != undefined) {
-							list.unshift(dependency);
-							this.getDependencies(dependency, list);
-						} else {
-							console.log(`[${this.constructor.name}.getDependencies(${serviceName})] : don't registred dependency ${dependency}.`);
-						}
+				if (Array.isArray(field.foreignKeysImport) == true) {
+					for (let item of field.foreignKeysImport) {
+						processDependency(item.table, list);
 					}
-				}
+				} else if (typeof(field.foreignKeysImport) == "string") {
+					processDependency(field.foreignKeysImport, list);
+				} else
+					throw new Error(`[${this.constructor.name}.getDependencies(${serviceName}, ${fieldName})] : invalid 'field.foreignKeysImport'`);
 			}
 		}
 
@@ -465,7 +472,7 @@ class DataStoreItem extends DataStore {
 			} else if (field.flags != undefined && field.flags != null) {
 				// field.flags : String[], vm.instanceFlags[fieldName] : Boolean[]
 				this.instanceFlags[fieldName] = Utils.strAsciiHexToFlags(value.toString(16));
-			} else if (field.options != undefined) {
+			} else if (field.enum != undefined) {
 				let pos;
 
 				if (value instanceof Object) {
@@ -622,7 +629,7 @@ class DataStoreItem extends DataStore {
 						label = label + this.buildFieldStr(fieldName, item) + ",";
 					} else if (field.flags != undefined && field.flags != null) {
 						label = label + value.toString(16) + ",";
-					} else if (field.options != undefined) {
+					} else if (field.enum != undefined) {
 						let pos = field.filterResults.indexOf(JSON.stringify(value));
 						label = label + field.filterResultsStr[pos] + ",";
 					} else if (field.htmlType == "number") {

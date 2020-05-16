@@ -350,8 +350,8 @@ class MicroServiceServer {
 			// habilita os campos PLENAMENTE não SQL
 			jsonBuilderValue.title = field.title;
 			jsonBuilderValue.document = field.document;
-			jsonBuilderValue.options = field.options;
-			jsonBuilderValue.optionsLabels = field.optionsLabels;
+			jsonBuilderValue.enum = field.enum;
+			jsonBuilderValue.enumLabels = field.enumLabels;
 			jsonBuilderValue.sortType = field.sortType;
 			jsonBuilderValue.orderIndex = field.orderIndex;
 			jsonBuilderValue.tableVisible = field.tableVisible;
@@ -362,8 +362,8 @@ class MicroServiceServer {
 				// copia do original os campos PLENAMENTE não SQL
 				jsonBuilderValue.title = fieldOriginal.title;
 				jsonBuilderValue.document = fieldOriginal.document;
-				jsonBuilderValue.options = fieldOriginal.options;
-				jsonBuilderValue.optionsLabels = fieldOriginal.optionsLabels;
+				jsonBuilderValue.enum = fieldOriginal.enum;
+				jsonBuilderValue.enumLabels = fieldOriginal.enumLabels;
 				jsonBuilderValue.sortType = fieldOriginal.sortType;
 				jsonBuilderValue.orderIndex = fieldOriginal.orderIndex;
 				jsonBuilderValue.tableVisible = fieldOriginal.tableVisible;

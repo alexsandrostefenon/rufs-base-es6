@@ -62,14 +62,16 @@ class RufsProxy {
 		for (const entry of config.modules) {
 			console.log(`loading module ${entry.path}...`);
 			const module = await import(entry.path);
+			console.log(`...loaded module ${entry.path}.`);
 
 			for (const name in module) {
 				if (name.indexOf("MicroService") >= 0) {
 					const microServiceClass = module[name];
 					const params = MicroServiceServer.getArgs({port: ++port, webapp: entry.webapp});
+					console.log(`loading instance of ${name}...`);
 					const instance = new microServiceClass(params);
 					await instance.listen();
-					console.log(`...loaded module ${entry.path}.`);
+					console.log(`...loaded instance of ${name}.`);
 					config.routes.push({sourcePath: instance.config.appName, target: `http://localhost:${instance.config.port}`});
 				}
 			}
