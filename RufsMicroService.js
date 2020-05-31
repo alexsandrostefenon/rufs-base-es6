@@ -26,10 +26,10 @@ class RufsServiceDbSync {
 
 		if (field.length == undefined) {
 			if (field.type == "string") field.length = 255;
-			if (field.type == "numeric") field.length = 9;
+			if (field.type == "number") field.length = 9;
 		}
 
-		if (field.type == "numeric" && field.scale == undefined) field.scale = 3;
+		if (field.type == "number" && field.scale == undefined) field.scale = 3;
 
 		let sqlLengthScale = "";
 
@@ -76,18 +76,18 @@ class RufsServiceDbSync {
 	createTable(name, schema) {
 		if (schema == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${schema}) : schema : Invalid Argument Exception`);
 		if (typeof(schema) == "string") schema = JSON.parse(schema);
-		const fields = schema.properties;
-		if (fields == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${fields}) : fields : Invalid Argument Exception`);
+
+		if (schema.properties == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${schema.properties}) : schema.properties : Invalid Argument Exception`);
 
 		const genSql = mapTables => {
 			let tableBody = "";
-			for (let [fieldName, field] of Object.entries(fields)) tableBody = tableBody + this.genSqlColumnDescription(fieldName, field) + ", ";
+			for (let [fieldName, field] of Object.entries(schema.properties)) tableBody = tableBody + this.genSqlColumnDescription(fieldName, field) + ", ";
 			// add foreign keys
-			for (let [fieldName, field] of Object.entries(fields)) if (field.foreignKeysImport != undefined) tableBody = tableBody + this.genSqlForeignKey(fieldName, field, mapTables) + ", ";
+			for (let [fieldName, field] of Object.entries(schema.properties)) if (field.foreignKeysImport != undefined) tableBody = tableBody + this.genSqlForeignKey(fieldName, field, mapTables) + ", ";
 			// add unique keys
 			let mapUniqueKey = new Map();
 
-			for (let [fieldName, field] of Object.entries(fields)) {
+			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				if (field.unique != undefined) {
 					if (mapUniqueKey.has(field.unique) == false) mapUniqueKey.set(field.unique, []);
 					mapUniqueKey.get(field.unique).push(fieldName);
@@ -101,7 +101,7 @@ class RufsServiceDbSync {
 			}
 			// add primary key
 			tableBody = tableBody + `PRIMARY KEY(`;
-			for (let [fieldName, field] of Object.entries(fields)) if (field.primaryKey == true) tableBody = tableBody + `${CaseConvert.camelToUnderscore(fieldName)}, `;
+			for (let fieldName of schema.primaryKeys) tableBody = tableBody + `${CaseConvert.camelToUnderscore(fieldName)}, `;
 			tableBody = tableBody.substring(0, tableBody.length-2) + `)`;
 			let tableName = CaseConvert.camelToUnderscore(name);
 			const sql = `CREATE TABLE ${tableName} (${tableBody})`;

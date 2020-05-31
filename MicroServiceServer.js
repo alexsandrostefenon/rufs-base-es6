@@ -6,8 +6,10 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import websocket from "websocket";
 import url from "url";
+import path from "path";
 
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
+import {HttpRestRequest} from "./webapp/es6/ServerConnection.js";
 import {Response} from "./server-utils.js";
 
 const fsPromises = fs.promises;
@@ -55,7 +57,7 @@ class MicroServiceServer {
 		config.webapp = preferenceConfig.webapp;
 
 		if (config.appName && config.appName.length > 0) {
-			config.webapp = config.webapp || MicroServiceServer.getArg("webapp", `./rufs-${config.appName}-es6/webapp`);
+			config.webapp = config.webapp || MicroServiceServer.getArg("webapp", preferenceConfig.defaultStaticPaths);//`./rufs-${config.appName}-es6/webapp`
 		}
 
 		console.log(`[MicroServiceServer.getArgs] service ${config.appName}, port ${config.port} : serving static files of ${config.webapp}`);
@@ -63,6 +65,8 @@ class MicroServiceServer {
 	}
 
 	constructor(config) {
+		const defaultStaticPaths = path.join(path.dirname(url.fileURLToPath(import.meta.url)), "webapp");
+		config.defaultStaticPaths = config.defaultStaticPaths != undefined ? config.defaultStaticPaths + "," + defaultStaticPaths : defaultStaticPaths;
 		this.config = MicroServiceServer.getArgs(config);
 		this.restServer = express();
 		this.restServer.use(express.urlencoded({extended:true}));
@@ -73,7 +77,11 @@ class MicroServiceServer {
 
 		this.expressServer = express();
 		console.log(`[MicroServiceServer.constructor] service ${this.config.appName}, port ${this.config.port} : serving static files of ${this.config.webapp}`);
-		this.expressServer.use("/", express.static(this.config.webapp));
+		const paths = this.config.webapp.split(",");
+
+		for (let path of paths)
+			this.expressServer.use("/", express.static(path));
+
 		this.expressServer.use("/rest", this.restServer);
 
 		try {
@@ -137,6 +145,7 @@ class MicroServiceServer {
 			return Promise.resolve();
 		}
 
+		req.jsonSearchParams = HttpRestRequest.urlSearchParamsToJson(req.query);
 		return this.onRequest(req, res, next, resource, action).
 		catch(err => {
 			console.error(`[${this.config.appName}] ${req.url} : ${err.message}`);
@@ -242,7 +251,6 @@ class MicroServiceServer {
 				}
 
 				service.name = name;
-				service.fields = service.properties;
 			}
 
 			return openapi;
@@ -270,7 +278,6 @@ class MicroServiceServer {
 	storeOpenApi(openapi) {
 		for (let [name, service] of Object.entries(openapi.definitions)) {
 			delete service.name;
-			if (service.fields != undefined) delete service.fields;
 		}
 
 		return fsPromises.writeFile(`openapi-${this.config.appName}.json`, JSON.stringify(openapi, null, "\t")).then(() => openapi);
@@ -279,7 +286,7 @@ class MicroServiceServer {
 	static updateJsonSchema(schemaName, schemaNew, schemaOld) {
 		schemaOld = schemaOld != undefined && schemaOld != null ? schemaOld : {};
 //		console.log(`[MicroServiceServer.updateJsonSchema(schemaName: ${schemaName}, schemaNew.properties: ${schemaNew.properties}, schemaOld.properties: ${schemaOld.properties})]`);
-		const jsonSchemaTypes = ["boolean", "string", "integer", "numeric", "datetime-local", "date"];
+		const jsonSchemaTypes = ["boolean", "string", "integer", "number", "datetime-local", "date"];
 		if (schemaNew.properties == undefined) schemaNew.properties = {};
 		if (schemaOld.properties == undefined) schemaOld.properties = {};
 		let newFields = schemaNew.properties;
@@ -330,7 +337,6 @@ class MicroServiceServer {
 				jsonBuilderValue["foreignKeysImport"] = field.foreignKeysImport;
 			}
 
-			jsonBuilderValue["primaryKey"] = field.primaryKey;
 			jsonBuilderValue["default"] = field.default;
 			jsonBuilderValue["unique"] = field.unique;
 			jsonBuilderValue["identityGeneration"] = field.identityGeneration;
@@ -402,8 +408,6 @@ class MicroServiceServer {
 		schema.primaryKeys = schemaNew.primaryKeys;
 		schema.uniqueKeys = schemaNew.uniqueKeys;
 		schema.foreignKeys = schemaNew.foreignKeys;
-		// TODO : temporary
-		schema.fields = schema.properties;
 		return schema;
 	}
 	

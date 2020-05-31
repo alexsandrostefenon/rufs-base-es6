@@ -80,7 +80,7 @@ class RequestFilter {
 				{
 					const service = RequestFilter.getService(tokenData, serviceName);
 
-					for (let [fieldName, field] of Object.entries(service.fields)) {
+					for (let [fieldName, field] of Object.entries(service.properties)) {
 						if (field.foreignKeysImport != undefined) {
 							const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign(service, fieldName, obj);
 
@@ -96,7 +96,7 @@ class RequestFilter {
 
 					for (let item of dependents) {
 						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
-						let field = rufsServiceOther.fields[item.field];
+						let field = rufsServiceOther.properties[item.field];
 						let foreignKey = RequestFilter.dataStoreManager.getForeignKey(rufsServiceOther, item.field, obj);
 						promises.push(entityManager.find(item.table, foreignKey).then(list => obj[field.document] = list));
 					}
@@ -190,10 +190,11 @@ class RequestFilter {
 		let orderBy = [];
 		const service = RequestFilter.getService (tokenData, serviceName);
 
-		for (let [fieldName, field] of Object.entries(service.fields)) {
+		for (let fieldName of service.primaryKeys) {
+			const field = service.properties[fieldName];
 			const type = field.type;
 
-			if (field.primaryKey == true && type != undefined) {
+			if (type != undefined) {
 				if (type == "integer" || type.includes("date") || type.includes("time")) {
 					orderBy.push(fieldName + " desc");
 				}

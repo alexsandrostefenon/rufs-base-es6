@@ -2,6 +2,10 @@
   "type": "module",
   "name": "rufs-base-es6",
   "version": "1.0.0",
+  "exports": {
+    "./RufsMicroService.js": "./RufsMicroService.js",
+    "./server-utils.js": "./server-utils.js"
+  },
   "dependencies": {
     "express": "^4.17.1",
     "websocket": "^1.0.31",

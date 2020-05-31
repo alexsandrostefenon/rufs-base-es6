@@ -17,16 +17,104 @@ class HttpRestRequest {
 	setToken(token) {
 		this.token = token;
 	}
+
+	static urlSearchParamsToJson(urlSearchParams, properties) {
+		const convertSearchParamsTypes = (searchParams, properties) => {
+			const reservedParams = ["primaryKey", "overwrite", "filter", "filterRange", "filterRangeMin", "filterRangeMax"];
+
+			for (let name of reservedParams) {
+				let obj = searchParams[name];
+
+				if (obj != undefined) {
+					for (let [fieldName, value] of Object.entries(obj)) {
+						let field = properties[fieldName];
+
+						if (field != undefined) {
+							if (field.type == "integer")
+								obj[fieldName] = Number.parseInt(value);
+							else if (field.type == "number")
+								obj[fieldName] = Number.parseFloat(value);
+							else if (field.type.startsWith("date") == true)
+								obj[fieldName] = new Date(value);
+						}
+					}
+				}
+			}
+		}
+
+		if (urlSearchParams == undefined || urlSearchParams == null)
+			return {};
+
+		const searchParams = {};
+		let entries;
+
+		if (urlSearchParams.entries != undefined)
+			entries = urlSearchParams.entries();
+		else
+			entries = Object.entries(urlSearchParams);
+
+		for (const [key,value] of entries) {
+			console.log(`CrudController.constructor() : param ${key} : ${value}`);
+
+			if (value.startsWith("{")) {
+				searchParams[key] = JSON.parse(value);
+			} else {
+				let list = key.split(".");
+				let lastChild = searchParams;
+				let i = 0;
+
+				while (i < list.length-1) {
+					let subKey = list[i++];
+					if (lastChild[subKey] == undefined) lastChild[subKey] = {};
+					lastChild = lastChild[subKey];
+				}
+
+				lastChild[list[i]] = value;
+			}
+		}
+
+		if (properties != undefined) convertSearchParamsTypes(searchParams, properties);
+		return searchParams;
+	}
+
+	static jsonToURLSearchParams(hashSearchObj) {
+		function objectToParams(object) {
+			let isJsObject = p => typeof(p) == "object";
+
+			function subObjectToParams(key, object) {
+				if (object == undefined) return "";
+				return Object.keys(object).map((childKey) => {
+					if (object[childKey] instanceof Date) {
+						return `${key}.${encodeURIComponent(childKey)}=${encodeURIComponent(object[childKey].toJSON())}`;
+					} else if (isJsObject(object[childKey])) {
+						return subObjectToParams(`${key}.${encodeURIComponent(childKey)}`, object[childKey]);
+					} else {
+						return `${key}.${encodeURIComponent(childKey)}=${encodeURIComponent(object[childKey])}`;
+					}
+				}).join('&');
+			}
+
+			return Object.keys(object).map((key) => {
+				if (object[key] instanceof Date) {
+					return `${encodeURIComponent(key)}=${encodeURIComponent(object[key].toJSON())}`;
+				} else if (isJsObject(object[key])) {
+					return subObjectToParams(encodeURIComponent(key), object[key]);
+				} else {
+					return `${encodeURIComponent(key)}=${encodeURIComponent(object[key])}`;
+				}
+			}).join('&');
+		}
+
+		const hashSearch = objectToParams(hashSearchObj);
+		const searchParams = new URLSearchParams(hashSearch);
+		return searchParams;
+	}
 	// private
 	request(path, method, params, objSend) {
 		let url = this.url + "/" + path;
 		
 		if (params != undefined && params != null) {
-			url = url + "?";
-			
-			for (let fieldName in params) {
-				url = url + fieldName + "=" + params[fieldName] + "&";
-			}
+			url = url + "?" + HttpRestRequest.jsonToURLSearchParams(params).toString();
 		}
 		
 		let options = {};
@@ -140,10 +228,14 @@ class RufsService extends DataStoreItem {
 	addRemoteListener(listenerInstance) {
 		this.remoteListeners.push(listenerInstance);
 	}
+
+	request(path, method, params, objSend) {
+        return this.httpRest.request(this.pathRest + "/" + path, method, params, objSend);
+	}
 	// used by websocket
 	getRemote(primaryKey) {
     	return this.httpRest.get(this.pathRest + "/read", primaryKey).then(data => {
-       		for (let [fieldName, field] of Object.entries(this.fields)) if (field.type.includes("date") || field.type.includes("time")) data[fieldName] = new Date(data[fieldName]);
+       		for (let [fieldName, field] of Object.entries(this.properties)) if (field.type.includes("date") || field.type.includes("time")) data[fieldName] = new Date(data[fieldName]);
             let pos = this.findPos(primaryKey);
             let action;
             let ret;
@@ -198,7 +290,7 @@ class RufsService extends DataStoreItem {
 
 	queryRemote(params) {
         return this.httpRest.query(this.pathRest + "/query", params).then(list => {
-			for (let [fieldName, field] of Object.entries(this.fields))
+			for (let [fieldName, field] of Object.entries(this.properties))
 				if (field.type.includes("date") || field.type.includes("time"))
 					list.forEach(item => item[fieldName] = new Date(item[fieldName]));
         	this.list = list;
@@ -271,7 +363,10 @@ class ServerConnection extends DataStoreManager {
     	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri}).
     	then(loginResponse => {
     		this.title = loginResponse.title;
-    		this.user = loginResponse.user;
+			this.rufsGroupOwner = loginResponse.rufsGroupOwner;
+			this.routes = loginResponse.routes;
+			this.path = loginResponse.path;
+			this.userMenu = loginResponse.menu;
     		this.httpRest.setToken(loginResponse.authctoken);
     		const schemas = [];
             // depois carrega os serviços autorizados
@@ -291,8 +386,8 @@ class ServerConnection extends DataStoreManager {
 					}
 
 					let service = new RufsServiceClass(this, params, this.httpRest);
-					if (service.fields.rufsGroupOwner != undefined && this.user.rufsGroupOwner != 1) service.fields.rufsGroupOwner.hiden = true;
-					if (service.fields.rufsGroupOwner != undefined && service.fields.rufsGroupOwner.default == undefined) service.fields.rufsGroupOwner.default = this.user.rufsGroupOwner;
+					if (service.properties.rufsGroupOwner != undefined && this.rufsGroupOwner != 1) service.properties.rufsGroupOwner.hiden = true;
+					if (service.properties.rufsGroupOwner != undefined && service.properties.rufsGroupOwner.default == undefined) service.properties.rufsGroupOwner.default = this.rufsGroupOwner;
 					schemas.push(service);
             	}
             }
@@ -330,6 +425,7 @@ class ServerConnection extends DataStoreManager {
                 		}).catch(error => reject(error));
             		} else {
             	    	this.webSocketConnect(path);
+               			console.log("[ServerConnection] ...loaded services");
                     	resolve(loginResponse);
             		}
             	}
@@ -341,7 +437,7 @@ class ServerConnection extends DataStoreManager {
     // public
     logout() {
 		this.webSocket.close();
-    	delete this.user;
+   		this.httpRest.setToken(undefined);
         // limpa todos os dados da sessão anterior
         for (let serviceName in this.services) {
         	delete this.services[serviceName];

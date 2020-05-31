@@ -4,18 +4,12 @@ class RufsSchema {
 //		console.log(`DataStore.constructor(${name}) ->`);
 		this.name = name;
 		this.schema = schema;
-		this.properties = this.fields = typeof schema.properties === "string" ? JSON.parse(schema.properties) : schema.properties;
+		this.properties = typeof schema.properties === "string" ? JSON.parse(schema.properties) : schema.properties;
 		this.foreignKeys = schema.foreignKeys || {};
 		this.uniqueKeys = schema.uniqueKeys;
-		this.primaryKeys = schema.primaryKeys;
-		const entries = Object.entries(this.fields);
+		this.primaryKeys = schema.primaryKeys || [];
+		const entries = Object.entries(this.properties);
 		this.shortDescriptionList = [];
-		// TODO : código temporário até terminar de migrar field.primaryKey para schema.primaryKeys
-		if (this.primaryKeys == undefined) {
-			this.primaryKeys = [];
-
-			for (let [fieldName, field] of entries) if (field.primaryKey == true) this.primaryKeys.push(fieldName);
-		}
 		// TODO : código temporário até terminar de migrar field.unique para schema.uniqueKeys
 		if (this.uniqueKeys == undefined) {
 			this.uniqueKeys = {};
@@ -37,12 +31,12 @@ class RufsSchema {
 		}
 		// Se não foi definido manualmente o shortDescriptionList, monta em modo automático usando os uniqueMaps
 		if (this.shortDescriptionList.length == 0) {
-			if (this.primaryKeys.find(fieldName => this.fields[fieldName].tableVisible == false) == undefined) {
+			if (this.primaryKeys.find(fieldName => this.properties[fieldName].tableVisible == false) == undefined) {
 				Array.prototype.push.apply(this.shortDescriptionList, this.primaryKeys);
 			}
 
 			for (let [name, list] of Object.entries(this.uniqueKeys)) {
-				if (list.find(fieldName => this.fields[fieldName].tableVisible == false) == undefined) {
+				if (list.find(fieldName => this.properties[fieldName].tableVisible == false) == undefined) {
 					for (let fieldName of list) if (this.shortDescriptionList.includes(fieldName) == false) this.shortDescriptionList.push(fieldName);
 					if (this.shortDescriptionList.length > 3) break;
 				}
@@ -76,7 +70,7 @@ class RufsSchema {
 	copyFields(dataIn) {
 		const ret = {};
 
-		for (let [fieldName, field] of Object.entries(this.fields)) {
+		for (let [fieldName, field] of Object.entries(this.properties)) {
 			const value = dataIn[fieldName];
 
 			if (value != undefined) {
@@ -85,7 +79,7 @@ class RufsSchema {
 				if (type == undefined || type == "string") {
 					ret[fieldName] = value;
 				} else if (type == "number" || type == "integer") {
-					if (isNaN(value) == true) {
+					if (typeof value == "string") {
 						ret[fieldName] = new Number(value).valueOf();
 					} else {
 						ret[fieldName] = value;
@@ -155,8 +149,8 @@ class DataStore extends RufsSchema {
 	}
 
 	clear() {
-		for (let fieldName in this.fields) {
-			let field = this.fields[fieldName];
+		for (let fieldName in this.properties) {
+			let field = this.properties[fieldName];
 			delete field.externalReferencesStr;
 		}
 	}
@@ -236,7 +230,7 @@ class DataStoreManager {
 		}
 
 		for (let [name, schema] of Object.entries(this.services)) {
-			for (let [fieldName, field] of Object.entries(schema.fields)) {
+			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				if (field.foreignKeysImport != undefined) {
 					if (schema.foreignKeys[fieldName] == undefined) schema.foreignKeys[fieldName] = [];
 					const foreignKeyDescription = schema.foreignKeys[fieldName];
@@ -282,7 +276,7 @@ class DataStoreManager {
 			return list;
 		}
 
-		for (let [fieldName, field] of Object.entries(service.fields)) {
+		for (let [fieldName, field] of Object.entries(service.properties)) {
 			if (field.foreignKeysImport != undefined) {
 				if (Array.isArray(field.foreignKeysImport) == true) {
 					for (let item of field.foreignKeysImport) {
@@ -304,7 +298,7 @@ class DataStoreManager {
 		const ret = [];
 
 		for (let service of services) {
-			for (let [fieldName, field] of Object.entries(service.fields)) {
+			for (let [fieldName, field] of Object.entries(service.properties)) {
 				if (field.foreignKeysImport != undefined) { // foreignKeysImport : [{table, field}]
 					let found = false;
 
@@ -334,7 +328,7 @@ class DataStoreManager {
 		const service = this.services[serviceName];
 		let foreignKeyEntries = [];
 
-		for (let [fieldName, field] of Object.entries(service.fields)) {
+		for (let [fieldName, field] of Object.entries(service.properties)) {
 			if (field.foreignKeysImport != undefined) {
 				if (Array.isArray(field.foreignKeysImport) == true) {
 					const list = field.foreignKeysImport.filter(item => item.table == foreignServiceName);
@@ -353,7 +347,7 @@ class DataStoreManager {
 	}
     // devolve o rufsService apontado por field
     getForeignService(service, fieldName) {
-		const field = service.fields[fieldName];
+		const field = service.properties[fieldName];
 		let serviceName;
 
 		if (Array.isArray(field.foreignKeysImport) == true)
@@ -372,8 +366,8 @@ class DataStoreManager {
 
 		let foreignKey = undefined;
 
-		if (service.fields[name] != undefined) {
-			const field = service.fields[name];
+		if (service.properties[name] != undefined) {
+			const field = service.properties[name];
 
 			if (field.foreignKeysImport != undefined) {
 				if (Array.isArray(field.foreignKeysImport) == true)
@@ -462,7 +456,7 @@ class DataStoreItem extends DataStore {
 	}
 	
 	setValue(fieldName, obj) {
-		const field = this.fields[fieldName];
+		const field = this.properties[fieldName];
 		delete field.externalReferencesStr;
 		let value = obj[fieldName];
 
@@ -523,9 +517,9 @@ class DataStoreItem extends DataStore {
 			obj = {};
 		}
 
-		for (let [fieldName, field] of Object.entries(this.fields)) if (obj[fieldName] == undefined && field.default != undefined) obj[fieldName] = getDefaultValue(field);
+		for (let [fieldName, field] of Object.entries(this.properties)) if (obj[fieldName] == undefined && field.default != undefined) obj[fieldName] = getDefaultValue(field);
 
-		for (let fieldName in this.fields) this.setValue(fieldName, obj);
+		for (let fieldName in this.properties) this.setValue(fieldName, obj);
 	}
 // Aggregate Section
 	clearAggregate() {
@@ -545,10 +539,10 @@ class DataStoreItem extends DataStore {
 			return stringBuffer;
 		}
 
-    	const field = this.fields[fieldName];
+    	const field = this.properties[fieldName];
 
 		if (field == undefined) {
-			console.error("buildField : field ", fieldName, " don't found in fields, options are : ", this.fields);
+			console.error("buildField : field ", fieldName, " don't found in properties, options are : ", this.properties);
 			return stringBuffer;
 		}
 
@@ -563,6 +557,7 @@ class DataStoreItem extends DataStore {
 				if (pos >= 0) {
 					stringBuffer.push(service.listStr[pos]);
 				} else {
+					let pos = service.findPos(primaryKey);
 					console.error(`[${this.constructor.name}.buildField] don't find item from service ${service.name} with primaryKey ${JSON.stringify(primaryKey)}, used ${service.name}.getPrimaryKeyForeign(${JSON.stringify(obj)}, ${fieldName}, ${JSON.stringify(field.foreignKeysImport)})`);
 	//				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
 				}
@@ -622,7 +617,7 @@ class DataStoreItem extends DataStore {
 			for (let fieldName in aggregate) {
 				let value = item[fieldName];
 				let range = aggregate[fieldName];
-				let field = this.fields[fieldName];
+				let field = this.properties[fieldName];
 				
 				if (range != false && range != "" && range != 0) {
 					if (field.foreignKeysImport != undefined) {
@@ -661,12 +656,12 @@ class DataStoreItem extends DataStore {
 	clearSort() {
 		this.fieldsSort = {};
 
-		for (let fieldName in this.fields) {
+		for (let fieldName in this.properties) {
 			this.fieldsSort[fieldName] = {};
-			this.fieldsSort[fieldName].type = this.fields[fieldName].type;
-			this.fieldsSort[fieldName].orderIndex = this.fields[fieldName].orderIndex;
-			this.fieldsSort[fieldName].sortType = this.fields[fieldName].sortType;
-			this.fieldsSort[fieldName].tableVisible = this.fields[fieldName].tableVisible;
+			this.fieldsSort[fieldName].type = this.properties[fieldName].type;
+			this.fieldsSort[fieldName].orderIndex = this.properties[fieldName].orderIndex;
+			this.fieldsSort[fieldName].sortType = this.properties[fieldName].sortType;
+			this.fieldsSort[fieldName].tableVisible = this.properties[fieldName].tableVisible;
 		}
 
 		this.applySort();
@@ -748,9 +743,16 @@ class DataStoreItem extends DataStore {
 		if (filterRangeMax == undefined) filterRangeMax = this.instanceFilterRangeMax; else this.instanceFilterRangeMax = filterRangeMax;
 		console.log(`DataStoreItem.applyFilter() :`, filter, filterRangeMin, filterRangeMax);
 
+		const compareExact = (a, b) => {
+			if (typeof a == "string" && typeof b == "string")
+				return a.trimEnd() == b.trimEnd();
+			else
+				return a == b;
+		}
+
 		const processForeign = (fieldFilter, obj, fieldName, compareType) => {
 			const compareFunc = (candidate, expected, compareType) => {
-				return Filter.matchObject(expected, candidate, (a,b,fieldName) => fieldName == undefined ? (compareType == 0 ? a == b : (compareType < 0 ? a < b : a > b)) : false, false);
+				return Filter.matchObject(expected, candidate, (a,b,fieldName) => fieldName == undefined ? (compareType == 0 ? compareExact(a ,b) : (compareType < 0 ? a < b : a > b)) : false, false);
 			}
 			
 			const item = this.serverConnection.getPrimaryKeyForeign(this.rufsService, fieldName, obj);
@@ -772,7 +774,7 @@ class DataStoreItem extends DataStore {
 
 		const process = (expectedFields, expectedFieldsMin, expectedFieldsMax, list) => {
 			const compareFunc = (candidate, expected, compareType) => {
-				return Filter.matchObject(expected, candidate, (a,b,fieldName) => fieldName == undefined ? (compareType == 0 ? a == b : (compareType < 0 ? a < b : a > b)) : processForeign(a,candidate,fieldName, compareType), true);
+				return Filter.matchObject(expected, candidate, (a,b,fieldName) => fieldName == undefined ? (compareType == 0 ? compareExact(a, b) : (compareType < 0 ? a < b : a > b)) : processForeign(a,candidate,fieldName, compareType), true);
 			}
 			
 			return list.filter(candidate => {
@@ -886,7 +888,6 @@ IDBKeyRange.upperBound
 IDBKeyRange.only
  */
 class Filter {
-
 	// private
 	static matchObject(expectedFields, actualObject, testFunc, matchStringPartial, recursive) {
         let flag = true;
@@ -921,10 +922,10 @@ class Filter {
                 	if (typeof actualProperty === "string") {
                     	if (matchStringPartial == true) {
                             if (expectedProperty != "") {
-                                flag = (actualProperty.indexOf(expectedProperty) >= 0);
+                                flag = (actualProperty.trimEnd().indexOf(expectedProperty.trimEnd()) >= 0);
                             }
                         } else {
-                            flag = (actualProperty == expectedProperty);
+                            flag = (actualProperty.trimEnd() == expectedProperty.trimEnd());
                         }
                 	} else {
                 		flag = false;
@@ -949,11 +950,13 @@ class Filter {
     }
 	// public
 	static checkMatchExact(item, obj) {
-    	var match = true;
+    	let match = true;
 
-    	for (var fieldName in obj) {
-        	var expected = obj[fieldName];
-        	var value = item[fieldName];
+    	for (let fieldName in obj) {
+        	let expected = obj[fieldName];
+        	if (typeof expected == "string") expected = expected.trimEnd();
+        	let value = item[fieldName];
+        	if (typeof value == "string") value = value.trimEnd();
 
         	if (value != expected) {
         		match = false;

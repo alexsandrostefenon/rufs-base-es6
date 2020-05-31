@@ -1,7 +1,7 @@
 import pg from "pg";
 import pgCamelCase from "pg-camelcase";
 import Firebird from "node-firebird";
-import FirebirdNative from "node-firebird";//firebird
+//import FirebirdNative from "node-firebird";//firebird
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 
 var revertCamelCase = pgCamelCase.inject(pg);
@@ -11,10 +11,79 @@ var types = pg.types
 types.setTypeParser(1700, 'text', parseFloat);
 types.setTypeParser(1114, str => new Date(str + "+0000"));
 
+if (pg.Query != undefined) {
+	const submit = pg.Query.prototype.submit;
+
+	pg.Query.prototype.submit = function () {
+		const text = this.text;
+		const values = this.values || [];
+
+		if (text != undefined) {
+			if (values.length > 0) {
+				const query = text.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]).replace(/"/g, "'"));
+				console.log(query);
+			} else {
+				console.log(text);
+			}
+		}
+
+		submit.apply(this, arguments);
+	};
+}
+
 class SqlAdapterNodeFirebird {
 
 	constructor(config) {
 		this.config = config;
+		this.enableParams = false;
+/*
+SELECT
+  RF.RDB$FIELD_NAME FIELD_NAME,
+  CASE F.RDB$FIELD_TYPE
+    WHEN 7 THEN
+      CASE F.RDB$FIELD_SUB_TYPE
+        WHEN 0 THEN 'SMALLINT'
+        WHEN 1 THEN 'NUMERIC(' || F.RDB$FIELD_PRECISION || ', ' || (-F.RDB$FIELD_SCALE) || ')'
+        WHEN 2 THEN 'DECIMAL'
+      END
+    WHEN 8 THEN
+      CASE F.RDB$FIELD_SUB_TYPE
+        WHEN 0 THEN 'INTEGER'
+        WHEN 1 THEN 'NUMERIC('  || F.RDB$FIELD_PRECISION || ', ' || (-F.RDB$FIELD_SCALE) || ')'
+        WHEN 2 THEN 'DECIMAL'
+      END
+    WHEN 9 THEN 'QUAD'
+    WHEN 10 THEN 'FLOAT'
+    WHEN 12 THEN 'DATE'
+    WHEN 13 THEN 'TIME'
+    WHEN 14 THEN 'CHAR(' || (TRUNC(F.RDB$FIELD_LENGTH / CH.RDB$BYTES_PER_CHARACTER)) || ') '
+    WHEN 16 THEN
+      CASE F.RDB$FIELD_SUB_TYPE
+        WHEN 0 THEN 'BIGINT'
+        WHEN 1 THEN 'NUMERIC(' || F.RDB$FIELD_PRECISION || ', ' || (-F.RDB$FIELD_SCALE) || ')'
+        WHEN 2 THEN 'DECIMAL'
+      END
+    WHEN 27 THEN 'DOUBLE'
+    WHEN 35 THEN 'TIMESTAMP'
+    WHEN 37 THEN 'VARCHAR(' || (TRUNC(F.RDB$FIELD_LENGTH / CH.RDB$BYTES_PER_CHARACTER)) || ')'
+    WHEN 40 THEN 'CSTRING' || (TRUNC(F.RDB$FIELD_LENGTH / CH.RDB$BYTES_PER_CHARACTER)) || ')'
+    WHEN 45 THEN 'BLOB_ID'
+    WHEN 261 THEN 'BLOB SUB_TYPE ' || F.RDB$FIELD_SUB_TYPE
+    ELSE 'RDB$FIELD_TYPE: ' || F.RDB$FIELD_TYPE || '?'
+  END FIELD_TYPE,
+  IIF(COALESCE(RF.RDB$NULL_FLAG, 0) = 0, NULL, 'NOT NULL') FIELD_NULL,
+  CH.RDB$CHARACTER_SET_NAME FIELD_CHARSET,
+  DCO.RDB$COLLATION_NAME FIELD_COLLATION,
+  COALESCE(RF.RDB$DEFAULT_SOURCE, F.RDB$DEFAULT_SOURCE) FIELD_DEFAULT,
+  F.RDB$VALIDATION_SOURCE FIELD_CHECK,
+  RF.RDB$DESCRIPTION FIELD_DESCRIPTION
+FROM RDB$RELATION_FIELDS RF
+JOIN RDB$FIELDS F ON (F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE)
+LEFT OUTER JOIN RDB$CHARACTER_SETS CH ON (CH.RDB$CHARACTER_SET_ID = F.RDB$CHARACTER_SET_ID)
+LEFT OUTER JOIN RDB$COLLATIONS DCO ON ((DCO.RDB$COLLATION_ID = F.RDB$COLLATION_ID) AND (DCO.RDB$CHARACTER_SET_ID = F.RDB$CHARACTER_SET_ID))
+WHERE (COALESCE(RF.RDB$SYSTEM_FLAG, 0) = 0)
+ORDER BY RF.RDB$FIELD_POSITION;
+*/
 	}
 
 	connect() {
@@ -57,6 +126,7 @@ class SqlAdapterFirebirdNative {
 
 	constructor(config) {
 		this.config = config;
+		this.enableParams = false;
 	}
 
 	connect() {
@@ -78,9 +148,8 @@ class SqlAdapterFirebirdNative {
 	}
 
 	query(sql, params){
-		sql = sql.replace(/\$\d+/g, "?");
 		return new Promise((resolve, reject) => {
-			this.client.query(sql, params, (err, result) => {
+			this.client.query(sql, (err, result) => {
 				if (err) {
 					reject(err);
 				} else {
@@ -102,6 +171,7 @@ class SqlAdapterPostgres {
 		config.max = 10; // max number of clients in the pool
 		config.idleTimeoutMillis = 30000; // how long a client is allowed to remain idle before being closed
 		this.client = new pg.Client(config);
+		this.enableParams = true;
 	}
 
 	connect() {
@@ -138,12 +208,13 @@ class DbClientPostgres {
 		//env var: PGHOST,PGPORT,PGDATABASE,PGUSER,PGPASSWORD
 		if (this.dbConfig.database != undefined && this.dbConfig.database.endsWith(".fdb")) {
 			this.client = new SqlAdapterNodeFirebird(this.dbConfig);
+//			this.client = new SqlAdapterFirebirdNative(this.dbConfig);
 		} else {
 			this.client = new SqlAdapterPostgres(this.dbConfig);
 		}
 
 		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date", "double precision", "bytea"];
-		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "numeric", "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "date", "numeric"         , "string"];
+		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "number" , "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "date", "number"          , "string"];
 	}
 
 	connect() {
@@ -154,29 +225,42 @@ class DbClientPostgres {
 		return this.client.end();
 	}
 
-	static buildQuery(fields, params, orderBy) {
-		var i = params.length + 1;
-		var str = "";
+	static buildQuery(queryParams, params, orderBy) {
+		const buildConditions = (queryParams, params, operator, conditions) => {
+			for (let fieldName in queryParams) {
+				let field = queryParams[fieldName];
+				let condition;
 
-		for (let fieldName in fields) {
-			let field = fields[fieldName];
+				if (Array.isArray(field)) {
+					condition = CaseConvert.camelToUnderscore(fieldName) + operator + " ANY ($" + (params.length + 1) + ")";
+				} else {
+					condition = CaseConvert.camelToUnderscore(fieldName) + operator + "$" + (params.length + 1);
+				}
 
-			if (Array.isArray(field)) {
-				str = str + CaseConvert.camelToUnderscore(fieldName) + " = ANY ($" + i + ") AND ";
-			} else {
-				str = str + CaseConvert.camelToUnderscore(fieldName) + "=$" + i + " AND ";
+				conditions.push(condition);
+				params.push(field);
 			}
 
-			params.push(field);
-			i++;
+			return conditions;
 		}
 
-		if (str.endsWith(" AND ") > 0) {
-			str = str.substring(0, str.length - 5);
+		if (queryParams == undefined || queryParams == null)
+			return "";
+
+		let conditions = [];
+
+		if (queryParams.filter || queryParams.filterRangeMin || queryParams.filterRangeMax) {
+			if (queryParams.filter) buildConditions(queryParams.filter, params, "=", conditions);
+			if (queryParams.filterRangeMin) buildConditions(queryParams.filterRangeMin, params, ">", conditions);
+			if (queryParams.filterRangeMax) buildConditions(queryParams.filterRangeMax, params, "<", conditions);
+		} else {
+			buildConditions(queryParams, params, "=", conditions);
 		}
 
-		if (str.length > 0) {
-			str = " WHERE " + str;
+		let str = "";
+
+		if (conditions.length > 0) {
+			str = " WHERE " + conditions.join(" AND ");
 		}
 
 		if (orderBy != undefined && Array.isArray(orderBy) && orderBy.length > 0) {
@@ -186,35 +270,41 @@ class DbClientPostgres {
 		return str;
 	}
 
-	insert(tableName, createObj) {
+	buildInsertSql(tableName, obj, params) {
+		const sqlStringify = value => {
+			if (typeof value == "string") value = "'" + value + "'";
+			if (value instanceof Date) value = "'" + value.toISOString() + "'";
+			return value;
+		}
+
 		tableName = CaseConvert.camelToUnderscore(tableName);
-		var params = [];
 		var i = 1;
-		var strFields = "";
-		var strValues = "";
+		const strFields = [];
+		const strValues = [];
 
-		for (var fieldName in createObj) {
-			var obj = createObj[fieldName];
-			strFields = strFields + CaseConvert.camelToUnderscore(fieldName) + ",";
-			strValues = strValues + "$" + i + ",";
+		for (let [fieldName, value] of Object.entries(obj)) {
+			strFields.push(CaseConvert.camelToUnderscore(fieldName));
+			strValues.push(params != undefined ? "$" + i : sqlStringify(value));
 
-			if (Array.isArray(obj) == true) {
-				var strArray = JSON.stringify(obj);
-				params.push(strArray);
-			} else {
-				if (typeof(obj) === "string" && obj.length > 30000) console.error(`dbClientPostgres.insert: too large value of field ${fieldName}:\n${obj}`);
-				params.push(obj);
+			if (params != undefined) {
+				if (Array.isArray(value) == true) {
+					var strArray = JSON.stringify(value);
+					params.push(strArray);
+				} else {
+					if (typeof(value) === "string" && value.length > 30000) console.error(`dbClientPostgres.insert: too large value of field ${fieldName}:\n${value}`);
+					params.push(value);
+				}
+
+				i++;
 			}
-
-			i++;
 		}
 
-		if (strFields.endsWith(",") > 0) {
-			strFields = strFields.substring(0, strFields.length - 1);
-			strValues = strValues.substring(0, strValues.length - 1);
-		}
+		return `INSERT INTO ${tableName} (${strFields.join(",")}) VALUES (${strValues.join(",")}) RETURNING *;`;
+	}
 
-		const sql = "INSERT INTO " + tableName + " (" + strFields + ") VALUES (" + strValues + ") RETURNING *";
+	insert(tableName, createObj) {
+		const params = this.client.enableParams ? [] : undefined;
+		const sql = this.buildInsertSql(tableName, createObj, params);
 		return this.client.query(sql, params).
 		then(result => {
 			console.log(`[${this.constructor.name}.insert(${tableName})]\n${sql}\n`, createObj, "\n", result.rows[0]);
@@ -227,19 +317,19 @@ class DbClientPostgres {
 		});
 	}
 
-	find(tableName, fields, orderBy) {
+	find(tableName, queryParams, orderBy) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
-		const params = [];
-		const sqlQuery = DbClientPostgres.buildQuery(fields, params, orderBy);
+		const params = this.client.enableParams ? [] : undefined;
+		const sqlQuery = DbClientPostgres.buildQuery(queryParams, params, orderBy);
 		const sql = `SELECT * FROM ${tableName} ${sqlQuery} LIMIT ${this.limitQuery}`;
 		console.log(sql);
 		return this.client.query(sql, params).then(result => result.rows);
 	}
 
-	findOne(tableName, fields) {
+	findOne(tableName, queryParams) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
-		const params = [];
-		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(fields, params);
+		const params = this.client.enableParams ? [] : undefined;
+		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(queryParams, params);
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
 				throw new Error(`NoResultException for ${tableName} : ${sql} : ${params}`);
@@ -249,10 +339,10 @@ class DbClientPostgres {
 		});
 	}
 
-	findMax(tableName, fieldName, fields) {
+	findMax(tableName, fieldName, queryParams) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
-		const params = [];
-		const sql = "SELECT MAX(" + fieldName + ") FROM " + tableName + DbClientPostgres.buildQuery(fields, params);
+		const params = this.client.enableParams ? [] : undefined;
+		const sql = "SELECT MAX(" + fieldName + ") FROM " + tableName + DbClientPostgres.buildQuery(queryParams, params);
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
 				throw new Error("NoResultException");
@@ -262,33 +352,29 @@ class DbClientPostgres {
 		});
 	}
 
-	update(tableName, primaryKey, updateObj) {
+	update(tableName, primaryKey, obj) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
-		var sql = "UPDATE " + tableName;
-		var params = [];
+		const params = this.client.enableParams ? [] : undefined;
 		var i = 1;
-		var str = "";
+		const list = [];
 
-		for (var fieldName in updateObj) {
-			str = str + CaseConvert.camelToUnderscore(fieldName) + "=$" + i + ",";
-			var obj = updateObj[fieldName];
+		for (let [fieldName, value] of Object.entries(obj)) {
+			list.push(CaseConvert.camelToUnderscore(fieldName)+ "=" + (params != undefined ? "$" + i : this.sqlStringify(value)));
 
-			if (Array.isArray(obj) == true) {
-				var strArray = JSON.stringify(obj);
-				params.push(strArray);
-			} else {
-				params.push(obj);
+			if (params != undefined) {
+				if (Array.isArray(value) == true) {
+					var strArray = JSON.stringify(value);
+					params.push(strArray);
+				} else {
+					if (typeof(value) === "string" && value.length > 30000) console.error(`dbClientPostgres.insert: too large value of field ${fieldName}:\n${value}`);
+					params.push(value);
+				}
+
+				i++;
 			}
-
-			i++;
 		}
 
-		if (str.endsWith(",") > 0) {
-			str = str.substring(0, str.length - 1);
-			sql = sql + " SET " + str;
-		}
-
-		sql = sql + DbClientPostgres.buildQuery(primaryKey, params) + " RETURNING *";
+		const sql = `UPDATE ${tableName} SET ${list.join(",")}` + DbClientPostgres.buildQuery(primaryKey, params) + " RETURNING *";
 		
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
@@ -305,7 +391,7 @@ class DbClientPostgres {
 
 	deleteOne(tableName, primaryKey) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
-		const params = [];
+		const params = this.client.enableParams ? [] : undefined;
 		const sql = "DELETE FROM " + tableName + DbClientPostgres.buildQuery(primaryKey, params) + " RETURNING *";
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
@@ -318,11 +404,29 @@ class DbClientPostgres {
 
 	getOpenApi() {
 		const processConstraints = mapTables => {
+/*
+SELECT rc.RDB$CONSTRAINT_NAME AS constraint_name,
+i.RDB$RELATION_NAME AS table_name,
+s.RDB$FIELD_NAME AS field_name,
+i2.RDB$RELATION_NAME AS references_table,
+s2.RDB$FIELD_NAME AS references_field,
+(s.RDB$FIELD_POSITION + 1) AS field_position
+FROM RDB$INDEX_SEGMENTS s
+LEFT JOIN RDB$INDICES i ON i.RDB$INDEX_NAME = s.RDB$INDEX_NAME
+LEFT JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME = s.RDB$INDEX_NAME
+LEFT JOIN RDB$REF_CONSTRAINTS refc ON rc.RDB$CONSTRAINT_NAME = refc.RDB$CONSTRAINT_NAME
+LEFT JOIN RDB$RELATION_CONSTRAINTS rc2 ON rc2.RDB$CONSTRAINT_NAME = refc.RDB$CONST_NAME_UQ
+LEFT JOIN RDB$INDICES i2 ON i2.RDB$INDEX_NAME = rc2.RDB$INDEX_NAME
+--LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME
+LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME AND s.RDB$FIELD_POSITION = s2.RDB$FIELD_POSITION
+WHERE rc.RDB$CONSTRAINT_TYPE = 'FOREIGN KEY'
+ORDER BY constraint_name,s.RDB$FIELD_POSITION
+*/
 			return this.client.query("SELECT table_name,constraint_name,constraint_type FROM information_schema.table_constraints ORDER BY table_name").
 			then(result => {
-				return this.client.query("SELECT constraint_name,table_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position").
+				return this.client.query("SELECT table_name,constraint_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position").
 				then(resultFields => {
-					return this.client.query("SELECT constraint_name,table_name,column_name FROM information_schema.constraint_column_usage").
+					return this.client.query("SELECT table_name,constraint_name,column_name FROM information_schema.constraint_column_usage").
 					then(resultFieldsRef => {
 						for (let [schemaName, schemaDb] of Object.entries(mapTables.definitions)) {
 							schemaDb.primaryKeys = [];
@@ -338,7 +442,7 @@ class DbClientPostgres {
 								const listRef = resultFieldsRef.rows.filter(item => item.constraintName == constraintName);
 
 								if (constraint.constraintType == "FOREIGN KEY") {
-									const foreignKey = {fields: [], fieldsRef: []};//requestFreight_RufsGroupOwner_Request_Fkey : {fields: ["rufsGroupOwner", "request"], tableRef: "request", fieldsRef: ["rufsGroupOwner", "id"]};
+									const foreignKey = {fields: [], fieldsRef: []};
 									schemaDb.foreignKeys[name] = foreignKey;
 
 									for (let item of list) {
@@ -401,6 +505,21 @@ class DbClientPostgres {
 		}
 
 		const processColumns = () => {
+/*
+SELECT
+	RF.RDB$RELATION_NAME table_name,RF.RDB$FIELD_POSITION pos,
+	RF.RDB$FIELD_NAME column_name,F.RDB$FIELD_TYPE data_type,F.RDB$FIELD_SUB_TYPE subType,
+	F.RDB$FIELD_PRECISION numeric_precision,F.RDB$FIELD_SCALE numeric_scale,
+	F.RDB$FIELD_LENGTH character_maximum_length,
+	RF.RDB$NULL_FLAG is_nullable, RF.RDB$UPDATE_FLAG is_updatable,
+	COALESCE(RF.RDB$DEFAULT_SOURCE, F.RDB$DEFAULT_SOURCE) column_default,
+	RF.RDB$DESCRIPTION description,
+	RF.RDB$IDENTITY_TYPE identity_generation, RF.RDB$GENERATOR_NAME
+FROM RDB$RELATION_FIELDS RF
+JOIN RDB$FIELDS F ON (F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE)
+WHERE (COALESCE(RF.RDB$SYSTEM_FLAG, 0) = 0)
+ORDER BY table_name,pos;
+*/
 			let sqlGetComments = 
 				"select c.*,left(pgd.description,100) as description " +
 				"from pg_catalog.pg_statio_all_tables as st " +
@@ -427,18 +546,18 @@ class DbClientPostgres {
 
 						const fieldName = CaseConvert.underscoreToCamel(rec.columnName, false);
 						let field = {}
-						field.primaryKey = undefined;
 						field.unique = undefined;
 						field.type = this.rufsTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
-						field.notNull = rec.isNullable == "NO"; // true,false
-						field.updatable = rec.isUpdatable == "YES"; // true,false
+						field.notNull = rec.isNullable != "YES" && rec.isNullable != 1; // true,false
+						field.updatable = rec.isUpdatable == "YES" || rec.isUpdatable == 1; // true,false
 						field.scale = rec.numericScale; // > 0 // 3,2,1
 						field.length = rec.characterMaximumLength; // > 0 // 255
 						field.precision = rec.numericPrecision; // > 0
 						field.default = rec.columnDefault; // 'pt-br'::character varying
 						field.description = rec.description;
 						// adjusts
-						if (field.type == "numeric" && field.scale == 0) field.type = "integer";
+						// TODO : check
+						if (field.type == "number" && (field.scale == undefined || field.scale == 0)) field.type = "integer";
 
 						if (field.default != undefined && field.default[0] == "'" && field.default.length > 2) {
 							if (field.type == "string") {
@@ -448,7 +567,7 @@ class DbClientPostgres {
 							}
 						}
 
-						if ((field.type == "integer" || field.type == "numeric") && isNaN(field.default) == true) field.default = undefined;
+						if ((field.type == "integer" || field.type == "number") && isNaN(field.default) == true) field.default = undefined;
 						field.identityGeneration = rec.identityGeneration; // BY DEFAULT,ALWAYS
 						// SERIAL TYPE
 						if (rec.default != undefined && rec.default.startsWith("nextval")) field.identityGeneration = "BY DEFAULT";

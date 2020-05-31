@@ -13,7 +13,10 @@ class AuthenticationMicroService extends RufsMicroService {
     load(user, dbConnInfo) {
     	// TODO : adjusts user.menu and user.routes to starts with default "rufs" in addr
 		let loginResponse = {};
-		loginResponse.user = user;
+		loginResponse.rufsGroupOwner = user.rufsGroupOwner;
+		loginResponse.routes = user.routes;
+		loginResponse.path = user.path;
+		loginResponse.menu = user.menu;
 
 		if (user.rufsGroupOwner) {
 			const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);

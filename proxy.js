@@ -110,11 +110,11 @@ catch(err => {
 //*/
 		],
 		"routes": [
-			{"sourcePath": "es6", "target": "http://localhost:8081/es6"},
-			{"sourcePath": "css", "target": "http://localhost:8081/css"},
-			{"sourcePath": "lib", "target": "http://localhost:8081/lib"},
-			{"sourcePath": "fonts", "target": "http://localhost:8081/fonts"},
-//			{"sourcePath": "base", "target": "http://localhost:8081"},
+//			{"sourcePath": "es6", "target": "http://localhost:8081/es6"},
+//			{"sourcePath": "css", "target": "http://localhost:8081/css"},
+//			{"sourcePath": "lib", "target": "http://localhost:8081/lib"},
+//			{"sourcePath": "fonts", "target": "http://localhost:8081/fonts"},
+			{"sourcePath": "base", "target": "http://localhost:8081"},
 //			{"sourcePath": "rufs_service", "target": "http://localhost:8082"},
 		]
 	};
