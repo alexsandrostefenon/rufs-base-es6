@@ -36,54 +36,101 @@ class SqlAdapterNodeFirebird {
 	constructor(config) {
 		this.config = config;
 		this.enableParams = false;
-/*
+		this.sqlInfoTables =
+`
 SELECT
-  RF.RDB$FIELD_NAME FIELD_NAME,
-  CASE F.RDB$FIELD_TYPE
-    WHEN 7 THEN
-      CASE F.RDB$FIELD_SUB_TYPE
-        WHEN 0 THEN 'SMALLINT'
-        WHEN 1 THEN 'NUMERIC(' || F.RDB$FIELD_PRECISION || ', ' || (-F.RDB$FIELD_SCALE) || ')'
-        WHEN 2 THEN 'DECIMAL'
-      END
-    WHEN 8 THEN
-      CASE F.RDB$FIELD_SUB_TYPE
-        WHEN 0 THEN 'INTEGER'
-        WHEN 1 THEN 'NUMERIC('  || F.RDB$FIELD_PRECISION || ', ' || (-F.RDB$FIELD_SCALE) || ')'
-        WHEN 2 THEN 'DECIMAL'
-      END
-    WHEN 9 THEN 'QUAD'
-    WHEN 10 THEN 'FLOAT'
-    WHEN 12 THEN 'DATE'
-    WHEN 13 THEN 'TIME'
-    WHEN 14 THEN 'CHAR(' || (TRUNC(F.RDB$FIELD_LENGTH / CH.RDB$BYTES_PER_CHARACTER)) || ') '
-    WHEN 16 THEN
-      CASE F.RDB$FIELD_SUB_TYPE
-        WHEN 0 THEN 'BIGINT'
-        WHEN 1 THEN 'NUMERIC(' || F.RDB$FIELD_PRECISION || ', ' || (-F.RDB$FIELD_SCALE) || ')'
-        WHEN 2 THEN 'DECIMAL'
-      END
-    WHEN 27 THEN 'DOUBLE'
-    WHEN 35 THEN 'TIMESTAMP'
-    WHEN 37 THEN 'VARCHAR(' || (TRUNC(F.RDB$FIELD_LENGTH / CH.RDB$BYTES_PER_CHARACTER)) || ')'
-    WHEN 40 THEN 'CSTRING' || (TRUNC(F.RDB$FIELD_LENGTH / CH.RDB$BYTES_PER_CHARACTER)) || ')'
-    WHEN 45 THEN 'BLOB_ID'
-    WHEN 261 THEN 'BLOB SUB_TYPE ' || F.RDB$FIELD_SUB_TYPE
-    ELSE 'RDB$FIELD_TYPE: ' || F.RDB$FIELD_TYPE || '?'
-  END FIELD_TYPE,
-  IIF(COALESCE(RF.RDB$NULL_FLAG, 0) = 0, NULL, 'NOT NULL') FIELD_NULL,
-  CH.RDB$CHARACTER_SET_NAME FIELD_CHARSET,
-  DCO.RDB$COLLATION_NAME FIELD_COLLATION,
-  COALESCE(RF.RDB$DEFAULT_SOURCE, F.RDB$DEFAULT_SOURCE) FIELD_DEFAULT,
-  F.RDB$VALIDATION_SOURCE FIELD_CHECK,
-  RF.RDB$DESCRIPTION FIELD_DESCRIPTION
+	RF.RDB$RELATION_NAME table_name,RF.RDB$FIELD_POSITION pos,
+	RF.RDB$FIELD_NAME column_name,
+	CASE F.RDB$FIELD_TYPE
+		WHEN 7 THEN
+		  CASE F.RDB$FIELD_SUB_TYPE
+			WHEN 0 THEN 'smallint'
+			WHEN 1 THEN 'numeric'
+			WHEN 2 THEN 'DECIMAL'
+		  END
+		WHEN 8 THEN
+		  CASE F.RDB$FIELD_SUB_TYPE
+			WHEN 0 THEN 'integer'
+			WHEN 1 THEN 'numeric'
+			WHEN 2 THEN 'DECIMAL'
+		  END
+		WHEN 9 THEN 'QUAD'
+		WHEN 10 THEN 'FLOAT'
+		WHEN 12 THEN 'date'
+		WHEN 13 THEN 'timestamp with time zone'
+		WHEN 14 THEN 'character'
+		WHEN 16 THEN
+		  CASE F.RDB$FIELD_SUB_TYPE
+			WHEN 0 THEN 'bigint'
+			WHEN 1 THEN 'numeric'
+			WHEN 2 THEN 'DECIMAL'
+		  END
+		WHEN 27 THEN 'double precision'
+		WHEN 35 THEN 'timestamp with time zone'
+		WHEN 37 THEN 'character varying'
+		WHEN 40 THEN 'CSTRING'
+		WHEN 45 THEN 'BLOB_ID'
+		WHEN 261 THEN
+		  CASE F.RDB$FIELD_SUB_TYPE
+			WHEN 0 THEN 'bytea'
+			WHEN 1 THEN 'text'
+			ELSE 'BLOB: ' || F.RDB$FIELD_TYPE
+		  END
+		ELSE 'RDB$FIELD_TYPE: ' || F.RDB$FIELD_TYPE || '?'
+	END data_type,
+	F.RDB$FIELD_PRECISION numeric_precision,-F.RDB$FIELD_SCALE numeric_scale,
+	F.RDB$FIELD_LENGTH character_maximum_length,
+	RF.RDB$NULL_FLAG is_nullable, RF.RDB$UPDATE_FLAG is_updatable,
+	COALESCE(RF.RDB$DEFAULT_SOURCE, F.RDB$DEFAULT_SOURCE) column_default,
+	RF.RDB$DESCRIPTION description,
+	RF.RDB$IDENTITY_TYPE identity_generation, RF.RDB$GENERATOR_NAME
 FROM RDB$RELATION_FIELDS RF
 JOIN RDB$FIELDS F ON (F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE)
-LEFT OUTER JOIN RDB$CHARACTER_SETS CH ON (CH.RDB$CHARACTER_SET_ID = F.RDB$CHARACTER_SET_ID)
-LEFT OUTER JOIN RDB$COLLATIONS DCO ON ((DCO.RDB$COLLATION_ID = F.RDB$COLLATION_ID) AND (DCO.RDB$CHARACTER_SET_ID = F.RDB$CHARACTER_SET_ID))
 WHERE (COALESCE(RF.RDB$SYSTEM_FLAG, 0) = 0)
-ORDER BY RF.RDB$FIELD_POSITION;
+ORDER BY table_name,pos;
+`;
+/*
+SELECT rc.RDB$CONSTRAINT_NAME AS constraint_name,
+i.RDB$RELATION_NAME AS table_name,
+s.RDB$FIELD_NAME AS field_name,
+i2.RDB$RELATION_NAME AS references_table,
+s2.RDB$FIELD_NAME AS references_field,
+(s.RDB$FIELD_POSITION + 1) AS field_position
+FROM RDB$INDEX_SEGMENTS s
+LEFT JOIN RDB$INDICES i ON i.RDB$INDEX_NAME = s.RDB$INDEX_NAME
+LEFT JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME = s.RDB$INDEX_NAME
+LEFT JOIN RDB$REF_CONSTRAINTS refc ON rc.RDB$CONSTRAINT_NAME = refc.RDB$CONSTRAINT_NAME
+LEFT JOIN RDB$RELATION_CONSTRAINTS rc2 ON rc2.RDB$CONSTRAINT_NAME = refc.RDB$CONST_NAME_UQ
+LEFT JOIN RDB$INDICES i2 ON i2.RDB$INDEX_NAME = rc2.RDB$INDEX_NAME
+--LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME
+LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME AND s.RDB$FIELD_POSITION = s2.RDB$FIELD_POSITION
+WHERE rc.RDB$CONSTRAINT_TYPE = 'FOREIGN KEY'
+ORDER BY constraint_name,s.RDB$FIELD_POSITION
 */
+		this.sqlInfoConstraints =
+		`
+SELECT
+	rc.RDB$RELATION_NAME table_name,rc.RDB$INDEX_NAME constraint_name,rc.RDB$CONSTRAINT_TYPE constraint_type
+FROM RDB$RELATION_CONSTRAINTS rc
+ORDER BY table_name,constraint_name
+		`;
+		this.sqlInfoConstraintsFields =
+		`
+SELECT s.RDB$INDEX_NAME constraint_name,s.RDB$FIELD_NAME column_name,s.RDB$FIELD_POSITION ordinal_position
+FROM RDB$INDEX_SEGMENTS s ORDER BY constraint_name,ordinal_position
+		`;
+		this.sqlInfoConstraintsFieldsRef = 
+		`
+SELECT
+refc.RDB$CONSTRAINT_NAME constraint_name,
+rc.RDB$RELATION_NAME table_name,
+s.RDB$FIELD_NAME column_name,
+s.RDB$FIELD_POSITION ordinal_position
+FROM RDB$INDEX_SEGMENTS s
+INNER JOIN RDB$REF_CONSTRAINTS refc ON s.RDB$INDEX_NAME = refc.RDB$CONST_NAME_UQ
+INNER JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME = s.RDB$INDEX_NAME
+ORDER BY constraint_name,ordinal_position
+		`;
 	}
 
 	connect() {
@@ -106,6 +153,13 @@ ORDER BY RF.RDB$FIELD_POSITION;
 	query(sql, params){
 		sql = sql.replace(/\$\d+/g, "?");
 		return new Promise((resolve, reject) => {
+			if (params && params.length > 0) {
+				const query = sql.replace(/\$(\?)/g, (m, v) => JSON.stringify(params[parseInt(v) - 1]).replace(/"/g, "'"));
+				console.log(query);
+			} else {
+				console.log(sql);
+			}
+
 			this.client.query(sql, params, (err, result) => {
 				if (err) {
 					reject(err);
@@ -115,7 +169,8 @@ ORDER BY RF.RDB$FIELD_POSITION;
 			});
 		}).
 		then(result => {
-			ret = {rowCount: result.length, rows: result};
+			console.log(result.length);
+			const ret = {rowCount: result.length, rows: result};
 			return ret;
 		});
 	}
@@ -172,6 +227,18 @@ class SqlAdapterPostgres {
 		config.idleTimeoutMillis = 30000; // how long a client is allowed to remain idle before being closed
 		this.client = new pg.Client(config);
 		this.enableParams = true;
+		this.sqlInfoTables = 
+			"select c.*,left(pgd.description,100) as description " +
+			"from pg_catalog.pg_statio_all_tables as st " +
+			"inner join pg_catalog.pg_description pgd on (pgd.objoid=st.relid) " +
+			"right outer join information_schema.columns c on (pgd.objsubid=c.ordinal_position and  c.table_schema=st.schemaname and c.table_name=st.relname) " +
+			"where table_schema = 'public' order by c.table_name,c.ordinal_position";
+		this.sqlInfoConstraints =
+			"SELECT table_name,constraint_name,constraint_type FROM information_schema.table_constraints ORDER BY table_name,constraint_name";
+		this.sqlInfoConstraintsFields =
+			"SELECT constraint_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position";
+		this.sqlInfoConstraintsFieldsRef =
+			"SELECT constraint_name,table_name,column_name FROM information_schema.constraint_column_usage";
 	}
 
 	connect() {
@@ -213,8 +280,8 @@ class DbClientPostgres {
 			this.client = new SqlAdapterPostgres(this.dbConfig);
 		}
 
-		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date", "double precision", "bytea"];
-		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "number" , "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "date", "number"          , "string"];
+		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date"          , "double precision", "bytea"];
+		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "number" , "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "datetime-local", "number"          , "string"];
 	}
 
 	connect() {
@@ -422,38 +489,39 @@ LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME AND s.R
 WHERE rc.RDB$CONSTRAINT_TYPE = 'FOREIGN KEY'
 ORDER BY constraint_name,s.RDB$FIELD_POSITION
 */
-			return this.client.query("SELECT table_name,constraint_name,constraint_type FROM information_schema.table_constraints ORDER BY table_name").
+			return this.client.query(this.client.sqlInfoConstraints).
 			then(result => {
-				return this.client.query("SELECT table_name,constraint_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position").
+				return this.client.query(this.client.sqlInfoConstraintsFields).
 				then(resultFields => {
-					return this.client.query("SELECT table_name,constraint_name,column_name FROM information_schema.constraint_column_usage").
+					return this.client.query(this.client.sqlInfoConstraintsFieldsRef).
 					then(resultFieldsRef => {
 						for (let [schemaName, schemaDb] of Object.entries(mapTables.definitions)) {
 							schemaDb.primaryKeys = [];
 							schemaDb.foreignKeys = {};
 							schemaDb.uniqueKeys = {};
 							const tableName = CaseConvert.camelToUnderscore(schemaName);
-							const constraints = result.rows.filter(item => item.tableName == tableName);
+							const constraints = result.rows.filter(item => item.tableName.trim().toLowerCase() == tableName);
 
 							for (let constraint of constraints) {
-								const constraintName = constraint.constraintName;
-								const name = CaseConvert.underscoreToCamel(constraintName, false);
-								const list = resultFields.rows.filter(item => item.constraintName == constraintName);
-								const listRef = resultFieldsRef.rows.filter(item => item.constraintName == constraintName);
+								if (constraint.constraintName == null) continue;
+								const constraintName = constraint.constraintName.trim();
+								const name = CaseConvert.underscoreToCamel(constraintName.trim().toLowerCase(), false);
+								const list = resultFields.rows.filter(item => item.constraintName.trim() == constraintName);
+								const listRef = resultFieldsRef.rows.filter(item => item.constraintName.trim() == constraintName);
 
-								if (constraint.constraintType == "FOREIGN KEY") {
+								if (constraint.constraintType.toString().trim() == "FOREIGN KEY") {
 									const foreignKey = {fields: [], fieldsRef: []};
 									schemaDb.foreignKeys[name] = foreignKey;
 
 									for (let item of list) {
-										const columnName = CaseConvert.underscoreToCamel(item.columnName, false);
+										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
 										foreignKey.fields.push(columnName);
 									}
 
 									for (let itemRef of listRef) {
-										const columnName = CaseConvert.underscoreToCamel(itemRef.columnName, false);
+										const columnName = CaseConvert.underscoreToCamel(itemRef.columnName.trim().toLowerCase(), false);
 										foreignKey.fieldsRef.push(columnName);
-										const tableName = CaseConvert.underscoreToCamel(itemRef.tableName, false);
+										const tableName = CaseConvert.underscoreToCamel(itemRef.tableName.trim().toLowerCase(), false);
 										foreignKey.tableRef = tableName;
 									}
 
@@ -467,16 +535,16 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 											console.error(`${this.constructor.name}.getTablesInfo.processConstraints : field ${foreignKey.fields[i]} not exists in schema ${schemaName}`);
 										}
 									}
-								} else if (constraint.constraintType == "UNIQUE") {
+								} else if (constraint.constraintType.toString().trim() == "UNIQUE") {
 									schemaDb.uniqueKeys[name] = [];
 
 									for (let item of list) {
-										const columnName = CaseConvert.underscoreToCamel(item.columnName, false);
+										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
 										schemaDb.uniqueKeys[name].push(columnName);
 									}
-								} else if (constraint.constraintType == "PRIMARY KEY") {
+								} else if (constraint.constraintType.toString().trim() == "PRIMARY KEY") {
 									for (let item of list) {
-										const columnName = CaseConvert.underscoreToCamel(item.columnName, false);
+										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
 										schemaDb.primaryKeys.push(columnName);
 									}
 								}
@@ -505,35 +573,14 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 		}
 
 		const processColumns = () => {
-/*
-SELECT
-	RF.RDB$RELATION_NAME table_name,RF.RDB$FIELD_POSITION pos,
-	RF.RDB$FIELD_NAME column_name,F.RDB$FIELD_TYPE data_type,F.RDB$FIELD_SUB_TYPE subType,
-	F.RDB$FIELD_PRECISION numeric_precision,F.RDB$FIELD_SCALE numeric_scale,
-	F.RDB$FIELD_LENGTH character_maximum_length,
-	RF.RDB$NULL_FLAG is_nullable, RF.RDB$UPDATE_FLAG is_updatable,
-	COALESCE(RF.RDB$DEFAULT_SOURCE, F.RDB$DEFAULT_SOURCE) column_default,
-	RF.RDB$DESCRIPTION description,
-	RF.RDB$IDENTITY_TYPE identity_generation, RF.RDB$GENERATOR_NAME
-FROM RDB$RELATION_FIELDS RF
-JOIN RDB$FIELDS F ON (F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE)
-WHERE (COALESCE(RF.RDB$SYSTEM_FLAG, 0) = 0)
-ORDER BY table_name,pos;
-*/
-			let sqlGetComments = 
-				"select c.*,left(pgd.description,100) as description " +
-				"from pg_catalog.pg_statio_all_tables as st " +
-				"inner join pg_catalog.pg_description pgd on (pgd.objoid=st.relid) " +
-				"right outer join information_schema.columns c on (pgd.objsubid=c.ordinal_position and  c.table_schema=st.schemaname and c.table_name=st.relname) " +
-				"where table_schema = 'public' order by c.table_name,c.ordinal_position";
-			return this.client.query(sqlGetComments).then(result => {
+			return this.client.query(this.client.sqlInfoTables).then(result => {
 				let mapTables = {definitions: {}};
 
 				for (let rec of result.rows) {
-					let typeIndex = this.sqlTypes.indexOf(rec.dataType);
+					let typeIndex = this.sqlTypes.indexOf(rec.dataType.trim().toLowerCase());
 
 					if (typeIndex >= 0) {
-						const tableName = CaseConvert.underscoreToCamel(rec.tableName, false);
+						const tableName = CaseConvert.underscoreToCamel(rec.tableName.trim().toLowerCase(), false);
 						let entityClass;
 
 						if (mapTables.definitions[tableName] != undefined) {
@@ -544,17 +591,19 @@ ORDER BY table_name,pos;
 							mapTables.definitions[tableName] = entityClass;
 						}
 
-						const fieldName = CaseConvert.underscoreToCamel(rec.columnName, false);
+						const fieldName = CaseConvert.underscoreToCamel(rec.columnName.trim().toLowerCase(), false);
 						let field = {}
 						field.unique = undefined;
 						field.type = this.rufsTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
 						field.notNull = rec.isNullable != "YES" && rec.isNullable != 1; // true,false
 						field.updatable = rec.isUpdatable == "YES" || rec.isUpdatable == 1; // true,false
 						field.scale = rec.numericScale; // > 0 // 3,2,1
-						field.length = rec.characterMaximumLength; // > 0 // 255
 						field.precision = rec.numericPrecision; // > 0
 						field.default = rec.columnDefault; // 'pt-br'::character varying
 						field.description = rec.description;
+
+						if (rec.dataType.trim().toLowerCase().startsWith("character") == true)
+							field.length = rec.characterMaximumLength; // > 0 // 255
 						// adjusts
 						// TODO : check
 						if (field.type == "number" && (field.scale == undefined || field.scale == 0)) field.type = "integer";
@@ -568,12 +617,12 @@ ORDER BY table_name,pos;
 						}
 
 						if ((field.type == "integer" || field.type == "number") && isNaN(field.default) == true) field.default = undefined;
-						field.identityGeneration = rec.identityGeneration; // BY DEFAULT,ALWAYS
+						field.identityGeneration = rec.identityGeneration;//.trim().toLowerCase(); // BY DEFAULT,ALWAYS
 						// SERIAL TYPE
 						if (rec.default != undefined && rec.default.startsWith("nextval")) field.identityGeneration = "BY DEFAULT";
 						entityClass.properties[fieldName] = field;
 					} else {
-						console.error(`DbClientPostgres.getTablesInfo().processColumns() : Invalid Database Type : ${rec.dataType}, full rec : ${JSON.stringify(rec)}`);
+						console.error(`DbClientPostgres.getTablesInfo().processColumns() : Invalid Database Type : ${rec.dataType.trim().toLowerCase()}, full rec : ${JSON.stringify(rec)}`);
 					}
 				}
 

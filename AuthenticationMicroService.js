@@ -27,29 +27,32 @@ class AuthenticationMicroService extends RufsMicroService {
         // TODO : código temporário para caber o na tela do celular
         loginResponse.title = user.name;
         loginResponse.roles = JSON.parse(user.roles);
-		loginResponse.rufsServices = [];
+		loginResponse.openapi = {"definitions": {}};
+		const listDataStore = [];
 
         if (user.name == "admin") {
-        	// TODO : remove below header control size
-        	// header size limited to 8k
-        	let strSize = 0;
-
-			for (let service of RequestFilter.listService) {
-				loginResponse.rufsServices.push(service);
-
-				if (strSize < 5*1024 && loginResponse.roles[service.name] == undefined) {
-					strSize += service.name.length + 6;
-//					loginResponse.roles[service.name] = {};
-				}
+			for (let [schemaName, dataStore] of Object.entries(RequestFilter.dataStoreManager.services)) {
+				listDataStore.push(dataStore);
 			}
         } else {
-			for (let serviceName of Object.keys(loginResponse.roles)) {
-				let service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
-				loginResponse.rufsServices.push(service);
+			for (let schemaName of Object.keys(loginResponse.roles)) {
+				listDataStore.push(RequestFilter.dataStoreManager.services[schemaName]);
 			}
         }
 
-        let authctoken = {};
+        for (const dataStore of listDataStore) {
+			if (dataStore != undefined) {
+				const schema = {};
+				schema.properties = dataStore.properties;
+				schema.foreignKeys = dataStore.foreignKeys;
+				schema.uniqueKeys = dataStore.uniqueKeys;
+				schema.primaryKeys = dataStore.primaryKeys;
+				loginResponse.openapi.definitions[dataStore.name] = schema;
+			}
+        }
+		// TODO : remove below header control size
+		// header size limited to 8k
+        const authctoken = {};
         authctoken.groups = [];
         // Add Groups
         {

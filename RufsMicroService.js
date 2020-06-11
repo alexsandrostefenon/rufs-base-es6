@@ -304,6 +304,7 @@ class RufsMicroService extends MicroServiceServer {
 
 				return this.loadOpenApi().
 				then(openapi => {
+					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi in execMigrations`);
 					const oldVersion = getVersion(openapi.info.version);
 					return fsPromises.readdir(`${this.config.migrationPath}`).
 					then(list => list.filter(fileName => getVersion(fileName) > oldVersion)).
@@ -317,6 +318,7 @@ class RufsMicroService extends MicroServiceServer {
 			then(openApiDb => {
 				return this.loadOpenApi().
 				then(openapi => {
+					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
 					for (let name in RufsMicroService.tablesRufs) if (openApiDb.definitions[name] == undefined) openApiDb.definitions[name] = RufsMicroService.tablesRufs[name];
 
 					for (let [name, schemaDb] of Object.entries(openApiDb.definitions)) {
@@ -333,8 +335,11 @@ class RufsMicroService extends MicroServiceServer {
 		then(() => createRufsTables()).
 		then(() => syncDb2OpenApi()).
 		then(openapi => {
+			console.log(`[${this.constructor.name}.listen()] openapi after syncDb2OpenApi`);
 			return Promise.resolve().
-			then(() => RequestFilter.updateRufsServices(this.entityManager, openapi)).
+			then(() => {
+				return RequestFilter.updateRufsServices(this.entityManager, openapi);
+			}).
 			then(() => super.listen()).
 			then(() => console.log(`[${this.constructor.name}] ... ${this.config.appName} started.`));
 		});

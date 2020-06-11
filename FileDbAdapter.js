@@ -1,5 +1,5 @@
 import fs from "fs";
-import {RufsSchema, Filter} from "./webapp/es6/DataStore.js";
+import {DataStore, Filter} from "./webapp/es6/DataStore.js";
 
 const fsPromises = fs.promises;
 
@@ -24,7 +24,7 @@ class FileDbAdapter {
 		let listOut;
 
 		if (schema.properties.id != undefined) {
-			const rufsSchema = new RufsSchema(tableName, schema);
+			const rufsSchema = new DataStore(tableName, schema);
 			listOut = [];
 
 			for (let i = 0; i < list.length; i++) {

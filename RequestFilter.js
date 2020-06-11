@@ -3,10 +3,27 @@ import jwt from "jsonwebtoken";
 import {Response} from "./server-utils.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {DataStoreManager, Filter} from "./webapp/es6/DataStore.js";
-import {RufsSchema} from "./webapp/es6/DataStore.js";
+import {DataStore} from "./webapp/es6/DataStore.js";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 
 const fsPromises = fs.promises;
+
+class DataStoreManagerDb extends DataStoreManager {
+	constructor(listService, entityManager) {
+		super(listService);
+		this.entityManager = entityManager;
+	}
+
+	get(schemaName, primaryKey, ignoreCache) {
+		return super.get(schemaName, primaryKey, ignoreCache).
+		then(res => {
+			if (res != null && res != undefined) return Promise.resolve(res);
+			const service = this.getService(schemaName);
+			if (service == null || service == undefined) return Promise.resolve(null);
+			return this.entityManager.findOne(schemaName, primaryKey).then(data => service.cache(primaryKey, data));
+		});
+	}
+}
 
 class RequestFilter {
 // private to create,update,delete,read
@@ -47,14 +64,7 @@ class RequestFilter {
 	}
 	//
 	static getService(tokenData, serviceName) {
-		serviceName = CaseConvert.underscoreToCamel (serviceName, false);
-
-		if (tokenData.roles[serviceName] == undefined) {
-			throw new Error("Unauthorized service Access");
-		}
-
-        const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
-		return service;
+		return RequestFilter.dataStoreManager.getService(serviceName, tokenData);
 	}
 	// public
 	static processCreate(user, entityManager, serviceName, obj, microService) {
@@ -73,37 +83,8 @@ class RequestFilter {
 		const primaryKey = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams, true);
 		return entityManager.findOne(serviceName, primaryKey).
 		then(obj => {
-			let promises = [];
-
-			if (useDocument == true) {
-				// One To One
-				{
-					const service = RequestFilter.getService(tokenData, serviceName);
-
-					for (let [fieldName, field] of Object.entries(service.properties)) {
-						if (field.foreignKeysImport != undefined) {
-							const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign(service, fieldName, obj);
-
-							if (tokenData.roles[item.table] != undefined) {
-								promises.push(entityManager.findOne(item.table, item.primaryKey).then(objExternal => obj[fieldName] = objExternal));
-							}
-						}
-					}
-				}
-				// One To Many
-				{
-					const dependents = RequestFilter.dataStoreManager.getDependents(serviceName, true);
-
-					for (let item of dependents) {
-						let rufsServiceOther = RequestFilter.getService(tokenData, item.table);
-						let field = rufsServiceOther.properties[item.field];
-						let foreignKey = RequestFilter.dataStoreManager.getForeignKey(rufsServiceOther, item.field, obj);
-						promises.push(entityManager.find(item.table, foreignKey).then(list => obj[field.document] = list));
-					}
-				}
-			}
-
-			return Promise.all(promises).then(() => obj);
+			if (useDocument != true) return obj;
+			return RequestFilter.dataStoreManager.getDocument(serviceName, obj, true, tokenData);
 		}).
 		catch(error => {
 			throw new Error(`[RequestFilter.getObject] for service ${serviceName}, fail to find object with primaryKey ${JSON.stringify(primaryKey)} : ` + error.message);
@@ -301,7 +282,7 @@ class RequestFilter {
 	}
 	// This method sends the same Bidding object to all opened sessions
 	static notify(microService, obj, serviceName, isRemove) {
-        const service = Filter.findOne(RequestFilter.listService, {"name": serviceName});
+        const service = RequestFilter.dataStoreManager.services[serviceName];
 		const primaryKey = service.getPrimaryKey(obj);
 		var msg = {};
 		msg.service = serviceName;
@@ -342,16 +323,19 @@ class RequestFilter {
 
 	static updateRufsServices(entityManager, openapi) {
         return Promise.resolve().then(() => {
-			RequestFilter.listService = [];
+        	console.log(`RequestFilter.updateRufsServices() : reseting RequestFilter.dataStoreManager`);
+			const listDataStore = [];
 			// TODO : trocar openapi.definitions por openapi.paths
-        	for (let name in openapi.definitions) RequestFilter.listService.push(new RufsSchema(name, openapi.definitions[name]));
-        	RequestFilter.dataStoreManager = new DataStoreManager(RequestFilter.listService);
+        	for (let name in openapi.definitions) {
+        		listDataStore.push(new DataStore(name, openapi.definitions[name]));
+        	}
+
+        	RequestFilter.dataStoreManager = new DataStoreManagerDb(listDataStore, entityManager);
         });
 	}
 
 }
 
 RequestFilter.dbConnMap = new Map();
-RequestFilter.listService = [];
 
 export {RequestFilter}

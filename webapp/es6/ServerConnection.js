@@ -210,57 +210,22 @@ class HttpRestRequest {
 
 class RufsService extends DataStoreItem {
 
-	constructor(serverConnection, params, httpRest) {
-		super(params.name, params.schema);
+	constructor(name, params, serverConnection, httpRest) {
+		super(name, params);
 		this.httpRest = httpRest;
         this.serverConnection = serverConnection;
         this.params = params;
         let appName = params.appName != undefined ? params.appName : "crud";
-        this.path = CaseConvert.camelToUnderscore(params.name);
+        this.path = CaseConvert.camelToUnderscore(name);
         this.pathRest = appName + "/rest/" + this.path;
-		this.remoteListeners = [];
-	}
-
-	clearRemoteListeners() {
-		this.remoteListeners = [];
-	}
-
-	addRemoteListener(listenerInstance) {
-		this.remoteListeners.push(listenerInstance);
 	}
 
 	request(path, method, params, objSend) {
         return this.httpRest.request(this.pathRest + "/" + path, method, params, objSend);
 	}
-	// used by websocket
-	getRemote(primaryKey) {
-    	return this.httpRest.get(this.pathRest + "/read", primaryKey).then(data => {
-       		for (let [fieldName, field] of Object.entries(this.properties)) if (field.type.includes("date") || field.type.includes("time")) data[fieldName] = new Date(data[fieldName]);
-            let pos = this.findPos(primaryKey);
-            let action;
-            let ret;
-
-            if (pos < 0) {
-            	action = "new";
-            	ret = this.updateList(data);
-            } else {
-            	action = "update";
-            	ret = this.updateList(data, pos, pos);
-            }
-
-            for (let listener of this.remoteListeners) listener.onNotify(primaryKey, action);
-            return ret;
-    	});
-	}
 
 	get(primaryKey) {
-        let pos = this.findPos(primaryKey);
-
-        if (pos < 0) {
-        	return this.getRemote(primaryKey);
-        } else {
-        	return Promise.resolve({"data": this.list[pos]});
-        }
+		return this.serverConnection.get(this.name, primaryKey, false);
 	}
 
 	save(itemSend) {
@@ -278,14 +243,8 @@ class RufsService extends DataStoreItem {
     	return this.httpRest.patch(this.pathRest + "/patch", this.copyFields(itemSend)).then(data => this.updateList(data));
 	}
 
-	removeInternal(primaryKey) {
-		const ret =  super.removeInternal(primaryKey);
-		for (let listener of this.remoteListeners) listener.onNotify(primaryKey, "delete");
-		return ret;
-	}
-
 	remove(primaryKey) {
-        return this.httpRest.remove(this.pathRest + "/delete", primaryKey);//.then(data => this.removeInternal(primaryKey));
+        return this.httpRest.remove(this.pathRest + "/delete", primaryKey);//.then(data => this.serverConnection.removeInternal(this.name, primaryKey));
 	}
 
 	queryRemote(params) {
@@ -305,10 +264,34 @@ class ServerConnection extends DataStoreManager {
 	constructor() {
     	super();
     	this.pathname = "";
+		this.remoteListeners = [];
 	}
 
 	clearRemoteListeners() {
-		for (let [serviceName, service] of Object.entries(this.services)) service.clearRemoteListeners();
+		this.remoteListeners = [];
+	}
+
+	addRemoteListener(listenerInstance) {
+		this.remoteListeners.push(listenerInstance);
+	}
+
+	removeInternal(schemaName, primaryKey) {
+		const ret =  super.removeInternal(schemaName, primaryKey);
+		for (let listener of this.remoteListeners) listener.onNotify(schemaName, primaryKey, "delete");
+		return ret;
+	}
+
+	get(schemaName, primaryKey, ignoreCache) {
+		return super.get(schemaName, primaryKey, ignoreCache).
+		then(res => {
+			if (res != null && res != undefined) return Promise.resolve(res);
+			const service = this.getService(schemaName);
+			if (service == null || service == undefined) return Promise.resolve(null);
+			return this.httpRest.get(service.pathRest + "/read", primaryKey).
+			then(data => {
+				return service.cache(primaryKey, data);
+			});
+		});
 	}
 	// private -- used in login()
 	webSocketConnect(path) {
@@ -342,12 +325,16 @@ class ServerConnection extends DataStoreManager {
             if (service != undefined) {
         		if (item.action == "delete") {
         			if (service.findOne(item.primaryKey) != null) {
-            			service.removeInternal(item.primaryKey);
+            			this.removeInternal(item.service, item.primaryKey);
         			} else {
         	            console.log("[ServerConnection] webSocketConnect : onMessage : delete : alread removed", item);
         			}
         		} else {
-        			service.getRemote(item.primaryKey);
+        			this.get(item.service, item.primaryKey, true).
+        			then(res => {
+						for (let listener of this.remoteListeners) listener.onNotify(item.service, item.primaryKey, item.action);
+						return res;
+        			});
         		}
             }
 		};
@@ -370,10 +357,10 @@ class ServerConnection extends DataStoreManager {
     		this.httpRest.setToken(loginResponse.authctoken);
     		const schemas = [];
             // depois carrega os serviços autorizados
-            for (let params of loginResponse.rufsServices) {
+            for (let [schemaName, params] of Object.entries(loginResponse.openapi.definitions)) {
             	if (params != null) {
 					if (params.appName == undefined) params.appName = path;
-					params.access = loginResponse.roles[params.name];
+					params.access = loginResponse.roles[schemaName];
 
 					if (params.access != undefined) {
 						if (params.access.query == undefined) params.access.query = true;
@@ -385,7 +372,7 @@ class ServerConnection extends DataStoreManager {
 						params.access = {"create": false, "read": false, "update": false, "delete": false, "query": false};
 					}
 
-					let service = new RufsServiceClass(this, params, this.httpRest);
+					let service = new RufsServiceClass(schemaName, params, this, this.httpRest);
 					if (service.properties.rufsGroupOwner != undefined && this.rufsGroupOwner != 1) service.properties.rufsGroupOwner.hiden = true;
 					if (service.properties.rufsGroupOwner != undefined && service.properties.rufsGroupOwner.default == undefined) service.properties.rufsGroupOwner.default = this.rufsGroupOwner;
 					schemas.push(service);

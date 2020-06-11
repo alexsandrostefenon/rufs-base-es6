@@ -1,9 +1,9 @@
+import {CaseConvert} from "./CaseConvert.js";
+
 class RufsSchema {
 
 	constructor(name, schema) {
-//		console.log(`DataStore.constructor(${name}) ->`);
 		this.name = name;
-		this.schema = schema;
 		this.properties = typeof schema.properties === "string" ? JSON.parse(schema.properties) : schema.properties;
 		this.foreignKeys = schema.foreignKeys || {};
 		this.uniqueKeys = schema.uniqueKeys;
@@ -50,8 +50,6 @@ class RufsSchema {
 				}
 			}
 		}
-		
-//		console.log(`DataStore.constructor(${name}) <-`);
 	}
 
 	checkPrimaryKey(obj) {
@@ -153,10 +151,13 @@ class DataStore extends RufsSchema {
 			let field = this.properties[fieldName];
 			delete field.externalReferencesStr;
 		}
+
+		return Promise.resolve();
 	}
 
 	process(action, params) {
-		this.clear();
+		console.log(`${this.constructor.name}.process(${action}, ${JSON.stringify(params)})`);
+		return this.clear();
 	}
 
 	find(params) {
@@ -175,7 +176,7 @@ class DataStore extends RufsSchema {
 		let pos = this.findPos(params);
 		return pos >= 0 ? this.list[pos] : null;
 	}
-	// private, use in getRemote, save, update and remove
+	// private, use in get, save, update and remove
 	updateList(data, oldPos, newPos) {
         if (oldPos == undefined && newPos == undefined) {
 			let primaryKey = this.getPrimaryKey(data);
@@ -204,11 +205,20 @@ class DataStore extends RufsSchema {
         
         return {"data": data, "oldPos": oldPos, "newPos": newPos};
 	}
-	// used by websocket
-	removeInternal(primaryKey) {
-        let pos = this.findPos(primaryKey);
-		console.log("DataStore.removeInternal : pos = ", pos, ", data :", this.list[pos]);
-        return pos >= 0 ? this.updateList(this.list[pos], pos) : null;
+
+	cache(primaryKey, data) {
+		for (let [fieldName, field] of Object.entries(this.properties)) if (field.type.includes("date") || field.type.includes("time")) data[fieldName] = new Date(data[fieldName]);
+		let pos = this.findPos(primaryKey);
+		let ret;
+
+		if (pos < 0) {
+			ret = this.updateList(data);
+		} else {
+			ret = this.updateList(data, pos, pos);
+		}
+
+		console.log(`[${this.constructor.name}.cache(${JSON.stringify(primaryKey)})] :`, ret);
+		return ret;
 	}
 
 }
@@ -250,6 +260,91 @@ class DataStoreManager {
 
 	constructor(list) {
 		this.setSchemas(list);
+	}
+
+	getService(serviceName, tokenData) {
+		serviceName = CaseConvert.underscoreToCamel(serviceName, false);
+
+		if (tokenData && tokenData.roles[serviceName] == undefined) {
+			throw new Error("Unauthorized service Access");
+		}
+
+		const service = this.services[serviceName];
+		return service;
+	}
+	// used by websocket
+	removeInternal(schemaName, primaryKey) {
+		const service = this.getService(schemaName);
+        let pos = service.findPos(primaryKey);
+		console.log("DataStore.removeInternal : pos = ", pos, ", data :", service.list[pos]);
+        return pos >= 0 ? service.updateList(service.list[pos], pos) : null;
+	}
+	// ignoreCache is used in websocket notifications
+	get(schemaName, primaryKey, ignoreCache) {
+		const dataStore = this.getService(schemaName);
+        const pos = dataStore.findPos(primaryKey);
+        if (pos >= 0) 
+        	return Promise.resolve({"data": dataStore.list[pos]});
+        else
+        	return Promise.resolve(null);
+	}
+
+	getDocument(schemaName, obj, merge, tokenData) {
+		let document;
+
+		if (merge != true) {
+			document = {};
+		} else {
+			document = obj;
+		}
+
+		const service = this.getService(schemaName, tokenData);
+		let promises = [];
+		// One To One
+		{
+			const listToGet = [];
+
+			for (let [fieldName, field] of Object.entries(service.properties)) {
+				if (field.foreignKeysImport != undefined) {
+					console.log(`[${this.constructor.name}.getDocument(${schemaName})] geting foreignKey for field ${fieldName} :`, field.foreignKeysImport);
+					const item = this.getPrimaryKeyForeign(service, fieldName, obj);
+					console.log(`[${this.constructor.name}.getDocument(${schemaName})] result foreignKey for field ${fieldName} :`, item);
+
+					if (!tokenData || tokenData.roles[item.table] != undefined) {
+						if (item.valid == true && listToGet.find(candidate => candidate.fieldName == fieldName) == undefined) {
+							listToGet.push({"fieldName": fieldName, item});
+						}
+					}
+				}
+			}
+
+			const next = (document, list) => {
+				if (list.length == 0) return;
+				const data = list.shift();
+				// TODO : log para encontrar quem está duplicando as entradas
+				return this.get(data.item.table, data.item.primaryKey).
+				then(objExternal => document[data.fieldName] = objExternal).
+				then(() => next(document, list));
+			}
+
+			promises.push(next(document, listToGet));
+		}
+		// One To Many
+		{
+			const dependents = this.getDependents(schemaName, true);
+
+			for (let item of dependents) {
+				if (!tokenData || tokenData.roles[item.table] != undefined) {
+					let rufsServiceOther = this.getService(item.table, tokenData);
+					let field = rufsServiceOther.properties[item.field];
+					let foreignKey = this.getForeignKey(rufsServiceOther, item.field, obj);
+					// TODO : check to findRemote
+					promises.push(service.find(foreignKey).then(list => document[field.document] = list));
+				}
+			}
+		}
+
+		return Promise.all(promises).then(() => document);
 	}
 
 	getDependencies(serviceName, list) {
@@ -372,9 +467,18 @@ class DataStoreManager {
 			if (field.foreignKeysImport != undefined) {
 				if (Array.isArray(field.foreignKeysImport) == true)
 					foreignKey = service.foreignKeys[field.foreignKeysImport[0].name];
-				else if (typeof(field.foreignKeysImport) == "string")
-					foreignKey = {fields: [name], tableRef: field.foreignKeysImport, fieldsRef: this.services[field.foreignKeysImport].primaryKeys};//TODO
-				else
+				else if (typeof(field.foreignKeysImport) == "string") {
+					let fields;
+					const fieldsRef = this.services[field.foreignKeysImport].primaryKeys;
+
+					if (fieldsRef.length == 1) {
+						fields = [name]
+					} else {
+						fields = fieldsRef;
+					}
+
+					foreignKey = {fields: fields, tableRef: field.foreignKeysImport, fieldsRef: fieldsRef};
+				} else
 					throw new Error(`[${this.constructor.name}.getForeignKeyDescription(${service.name}, ${name})] : invalid 'field.foreignKeysImport'`);
 			}
 		} else {
@@ -396,16 +500,23 @@ class DataStoreManager {
 			return undefined;
 
 		const key = {};
+		let valid = true;
 
 		if (obj != undefined) {
 			for (let i = 0; i < foreignKeyDescription.fields.length; i++) {
 				const field = foreignKeyDescription.fields[i];
 				const fieldRef = foreignKeyDescription.fieldsRef[i];
-				key[fieldRef] = obj[field];
+				const value = obj[field];
+				key[fieldRef] = value;
+				if (value == undefined || value == "") valid = false;
 			}
 		}
 
-    	return {"name" : foreignKeyDescription.name, "table": foreignKeyDescription.tableRef, "primaryKey": key};
+		const tableRef = foreignKeyDescription.tableRef;
+
+		if (this.services[tableRef] == undefined) valid = false;
+
+    	return {"name" : foreignKeyDescription.name, "table": tableRef, "primaryKey": key, "valid": valid};
 	}
 	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
 	// field.foreignKeysImport: [{table: "request", field: "rufsGroupOwner"}]
@@ -433,6 +544,21 @@ class DataStoreItem extends DataStore {
 	
 	constructor(name, schema, list) {
 		super(name, schema, list);
+		// instance
+		this.instance = {};
+		this.instanceFlags = {};
+		// aggregate
+		this.instanceAggregateRange = {};
+		this.aggregateResults = new Map();
+		// sort
+		this.fieldsSort = {};
+		// filter
+		this.instanceFilter = {};
+		this.instanceFilterRange = {};
+		this.instanceFilterRangeMin = {};
+		this.instanceFilterRangeMax = {};
+		this.filterResults = this.list;
+		// pagination
 		this.pagination = new Pagination(100);
 	}
 
@@ -442,19 +568,22 @@ class DataStoreItem extends DataStore {
 	}
 
 	process(action, params) {
-		super.process(action, params);
-		this.clearFilter();
-		this.clearSort();
-		this.clearAggregate();
+		return super.process(action, params).then(() => {
+			return this.clearFilter().then(() => {
+				this.clearSort();
+				this.clearAggregate();
+			});
+		})
 	}
 // Instance section
 	clear() {
-		super.clear();
-		this.instance = {};
-		this.instanceFlags = {};
-		this.setValues(); // set default values
+		return super.clear().then(() => {
+			this.instance = {};
+			this.instanceFlags = {};
+			return this.setValues(); // set default values
+		});
 	}
-	
+
 	setValue(fieldName, obj) {
 		const field = this.properties[fieldName];
 		delete field.externalReferencesStr;
@@ -491,16 +620,16 @@ class DataStoreItem extends DataStore {
 		this.instance[fieldName] = value;
 	}
 
-	setValues(obj) {
+	setValues(obj, dataStoreManager) {
 		let getDefaultValue = field => {
 			let value;
 
 			if (field.default != undefined) {
-				if (field.type == "integer") {
+				if (field.type == "integer" && field.default != "") {
 					value = Number.parseInt(field.default);
-				} else if (field.type == "number") {
+				} else if (field.type == "number" && field.default != "") {
 					value = Number.parseFloat(field.default);
-				} else if (field.type.includes("date") || field.type.includes("time")) {
+				} else if ((field.type.includes("date") || field.type.includes("time")) && field.default != "")  {
 					value = new Date();
 					value.setMilliseconds(0);
 				} else {
@@ -517,9 +646,23 @@ class DataStoreItem extends DataStore {
 			obj = {};
 		}
 
-		for (let [fieldName, field] of Object.entries(this.properties)) if (obj[fieldName] == undefined && field.default != undefined) obj[fieldName] = getDefaultValue(field);
+		for (let [fieldName, field] of Object.entries(this.properties)) {
+			if (obj[fieldName] == undefined && field.default != undefined) {
+				const value = getDefaultValue(field);
+				if (value != undefined) obj[fieldName] = value;
+			}
+		}
 
-		for (let fieldName in this.properties) this.setValue(fieldName, obj);
+		let promise;
+
+		if (dataStoreManager != undefined && dataStoreManager.services[this.name] != undefined)
+			promise = dataStoreManager.getDocument(this.name, obj, false);
+		else
+			promise = Promise.resolve();
+
+		return promise.then(() => {
+			for (let fieldName in this.properties) this.setValue(fieldName, obj);
+		});
 	}
 // Aggregate Section
 	clearAggregate() {
@@ -558,7 +701,7 @@ class DataStoreItem extends DataStore {
 					stringBuffer.push(service.listStr[pos]);
 				} else {
 					let pos = service.findPos(primaryKey);
-					console.error(`[${this.constructor.name}.buildField] don't find item from service ${service.name} with primaryKey ${JSON.stringify(primaryKey)}, used ${service.name}.getPrimaryKeyForeign(${JSON.stringify(obj)}, ${fieldName}, ${JSON.stringify(field.foreignKeysImport)})`);
+//					console.error(`[${this.constructor.name}.buildField] don't find item from service ${service.name} with primaryKey ${JSON.stringify(primaryKey)}, used ${service.name}.getPrimaryKeyForeign(${JSON.stringify(obj)}, ${fieldName}, ${JSON.stringify(field.foreignKeysImport)})`);
 	//				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
 				}
 			} else {
@@ -733,8 +876,9 @@ class DataStoreItem extends DataStore {
 		this.instanceFilterRangeMax = {};
 		this.filterResults = this.list;
 		// TODO : verificar impacto
-		this.clear();
-		this.paginate();
+		return this.clear().then(() => {
+			this.paginate();
+		});
 	}
 
 	applyFilter(filter, filterRangeMin, filterRangeMax) {

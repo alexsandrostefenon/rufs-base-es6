@@ -213,6 +213,7 @@ class MicroServiceServer {
 	}
 
 	loadOpenApi() {
+		console.log(`[${this.constructor.name}.loadOpenApi()] loading openapi-${this.config.appName}.json`);
 		return fsPromises.readFile(`openapi-${this.config.appName}.json`).
 		then(text => JSON.parse(text)).
 		catch(() => {
