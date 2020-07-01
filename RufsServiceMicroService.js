@@ -11,7 +11,7 @@ class RufsServiceMicroService extends RufsMicroService {
 		const name = req.query.name;
 		return this.loadOpenApi().
 		then(openapi => {
-			const schemaOld = openapi.definitions[name];
+			const schemaOld = openapi.components.schemas[name];
 			const schema = req.body;
 			console.log(`.update : [${name}] :\nold properties :\n`, schemaOld.properties, "\nnew properties :\n", schema.properties);
 			let promise;
@@ -27,7 +27,7 @@ class RufsServiceMicroService extends RufsMicroService {
 			}
 			
 			promise.then(schemaChanged => {
-				openapi.definitions[name] = this.constructor.updateJsonSchema(schemaChanged.name, schemaChanged, schemaOld);
+				openapi.components.schemas[name] = this.constructor.updateJsonSchema(schemaChanged.name, schemaChanged, schemaOld);
 				return this.storeOpenApi(openapi);
 			});
 		}).
@@ -59,9 +59,9 @@ class RufsServiceMicroService extends RufsMicroService {
 			let promise;
 
 			if (access == true) {
-				if (action == "update") {
+				if (req.method == "PUT") {
 					promise = this.update(req, res, next, resource, action);
-				} else if (action == "delete") {
+				} else if (req.method == "DELETE") {
 					promise = this.remove(req, res, next, resource, action);
 				} else {
 					promise = super.onRequest(req, res, next, resource, action);

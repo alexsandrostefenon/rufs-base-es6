@@ -27,7 +27,7 @@ class AuthenticationMicroService extends RufsMicroService {
         // TODO : código temporário para caber o na tela do celular
         loginResponse.title = user.name;
         loginResponse.roles = JSON.parse(user.roles);
-		loginResponse.openapi = {"definitions": {}};
+		loginResponse.openapi = {"components": {"schemas": {}}};
 		const listDataStore = [];
 
         if (user.name == "admin") {
@@ -47,7 +47,7 @@ class AuthenticationMicroService extends RufsMicroService {
 				schema.foreignKeys = dataStore.foreignKeys;
 				schema.uniqueKeys = dataStore.uniqueKeys;
 				schema.primaryKeys = dataStore.primaryKeys;
-				loginResponse.openapi.definitions[dataStore.name] = schema;
+				loginResponse.openapi.components.schemas[dataStore.name] = schema;
 			}
         }
 		// TODO : remove below header control size

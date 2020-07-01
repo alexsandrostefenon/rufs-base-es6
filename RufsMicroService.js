@@ -9,7 +9,7 @@ import {Response} from "./server-utils.js";
 const fsPromises = fs.promises;
 
 class RufsServiceDbSync {
-	
+
 	constructor(entityManager) {
 		this.entityManager = entityManager;
 	}
@@ -22,21 +22,21 @@ class RufsServiceDbSync {
 		let pos = this.entityManager.rufsTypes.indexOf(field.type);
         if (pos < 0) throw new Error(`DbClientPostgres.genSqlColumnDescription() : field ${fieldName} : unknow type : ${field.type}`);
 		let sqlType = this.entityManager.sqlTypes[pos];
-		if (field.type == "string" && field.length < 32) sqlType = "character";
+		if (field.type == "string" && field.maxLength < 32) sqlType = "character";
 
-		if (field.length == undefined) {
-			if (field.type == "string") field.length = 255;
-			if (field.type == "number") field.length = 9;
+		if (field.maxLength == undefined) {
+			if (field.type == "string") field.maxLength = 255;
+			if (field.type == "number") field.maxLength = 9;
 		}
 
 		if (field.type == "number" && field.scale == undefined) field.scale = 3;
 
 		let sqlLengthScale = "";
 
-		if (field.length != undefined && field.scale != undefined) {
-			sqlLengthScale = `(${field.length},{field.scale})`;
-		} else if (field.length != undefined) {
-			sqlLengthScale = `(${field.length})`;
+		if (field.maxLength != undefined && field.scale != undefined) {
+			sqlLengthScale = `(${field.maxLength},{field.scale})`;
+		} else if (field.maxLength != undefined) {
+			sqlLengthScale = `(${field.maxLength})`;
 		}
 
 		let sqlDefault = "";
@@ -50,26 +50,12 @@ class RufsServiceDbSync {
 		let sqlNotNull = field.notNull == true ? "NOT NULL" : "";  
 		return `${CaseConvert.camelToUnderscore(fieldName)} ${sqlType}${sqlLengthScale} ${sqlDefault} ${sqlNotNull}`;
 	}
-	// TODO : refatorar função genSqlForeignKey(fieldName, field, mapTables) para genSqlForeignKey(tableName, mapTables)
-	genSqlForeignKey(fieldName, field, mapTables) {
-		// TODO : refatorar (Array field.foreignKeysImport) para (Map shema.foreignKeysImport), onde a chave do mapa é o nome da chave estrangeira definida pelo SGDB
+	// TODO : refatorar função genSqlForeignKey(fieldName, field, openapi) para genSqlForeignKey(tableName, openapi)
+	genSqlForeignKey(fieldName, field, openapi) {
 		const ret = [];
-
-		if (Array.isArray(field.foreignKeysImport) == true) {
-			for (let item of field.foreignKeysImport) {
-				let tableOut = CaseConvert.camelToUnderscore(item.table);
-				let fieldOut = CaseConvert.camelToUnderscore(item.field);
-				const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}(${fieldOut})`;
-				ret.push(str);
-			}
-		} else if (typeof(field.foreignKeysImport) == "string") {
-			let tableOut = CaseConvert.camelToUnderscore(field.foreignKeysImport);
-			const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
-			ret.push(str);
-		} else {
-			throw new Error(`[${this.constructor.name}.genSqlForeignKey(${fieldName})] : invalid 'field.foreignKeysImport'`);
-		}
-
+		let tableOut = CaseConvert.camelToUnderscore(field.$ref.substring(field.$ref.lastIndexOf("/")+1));
+		const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
+		ret.push(str);
 		return ret.join(",");
 	}
 
@@ -79,11 +65,11 @@ class RufsServiceDbSync {
 
 		if (schema.properties == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${schema.properties}) : schema.properties : Invalid Argument Exception`);
 
-		const genSql = mapTables => {
+		const genSql = openapi => {
 			let tableBody = "";
 			for (let [fieldName, field] of Object.entries(schema.properties)) tableBody = tableBody + this.genSqlColumnDescription(fieldName, field) + ", ";
 			// add foreign keys
-			for (let [fieldName, field] of Object.entries(schema.properties)) if (field.foreignKeysImport != undefined) tableBody = tableBody + this.genSqlForeignKey(fieldName, field, mapTables) + ", ";
+			for (let [fieldName, field] of Object.entries(schema.properties)) if (field.$ref != undefined) tableBody = tableBody + this.genSqlForeignKey(fieldName, field, openapi) + ", ";
 			// add unique keys
 			let mapUniqueKey = new Map();
 
@@ -109,7 +95,7 @@ class RufsServiceDbSync {
 			return sql;
 		};
 		
-		return this.entityManager.getOpenApi().then(mapTables => genSql(mapTables)).then(sql => this.entityManager.client.query(sql));
+		return this.entityManager.getOpenApi().then(openapi => genSql(openapi)).then(sql => this.entityManager.client.query(sql));
 	}
 
 	alterTable(name, newFields, oldFields) {
@@ -117,7 +103,7 @@ class RufsServiceDbSync {
 		if (typeof(newFields) == "string") newFields = JSON.parse(newFields);
 		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
 		
-		const genSql = mapTables => {
+		const genSql = openapi => {
 			let sql = null;
 			let tableBody = "";
 			// fields to remove
@@ -125,7 +111,7 @@ class RufsServiceDbSync {
 			// fields to add
 			for (let [fieldName, field] of Object.entries(newFields)) if (oldFields[fieldName] ==  undefined) tableBody = tableBody + "ADD COLUMN " + this.genSqlColumnDescription(fieldName, field) + ", ";
 			// add foreign keys for new fields or existent fields without foreign keys 
-			for (let [fieldName, field] of Object.entries(newFields)) if ((field.foreignKeysImport != undefined) && (oldFields[fieldName] ==  undefined || oldFields[fieldName].foreignKeysImport ==  undefined)) tableBody = tableBody + "ADD " + this.genSqlForeignKey(fieldName, field, mapTables) + ", ";
+			for (let [fieldName, field] of Object.entries(newFields)) if ((field.$ref != undefined) && (oldFields[fieldName] ==  undefined || oldFields[fieldName].$ref ==  undefined)) tableBody = tableBody + "ADD " + this.genSqlForeignKey(fieldName, field, openapi) + ", ";
 			//
 			if (tableBody.length > 0) {
 				tableBody = tableBody.substring(0, tableBody.length-2);
@@ -133,7 +119,7 @@ class RufsServiceDbSync {
 				sql = `ALTER TABLE ${tableName} ${tableBody}`;
 			}
 
-			console.log(`.alterTable() : table ${name}, sql : \n${sql}\n`, mapTables);
+			console.log(`.alterTable() : table ${name}, sql : \n${sql}\n`, openapi);
 			return sql;
 		};
 		
@@ -178,7 +164,7 @@ class RufsMicroService extends MicroServiceServer {
 		if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
 		let response;
 
-		if (this.openapi != undefined && this.openapi.definitions[resource] != undefined) {
+		if (this.openapi != undefined && this.openapi.components.schemas[resource] != undefined) {
 			response = this.processRequest(req, resource, action).then(data => Response.ok(data));
 		} else {
 			response = RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
@@ -233,7 +219,7 @@ class RufsMicroService extends MicroServiceServer {
 			return this.entityManager.getOpenApi().
 			then(openapi => {
 				let tablesMissing = new Map();
-				for (let name in RufsMicroService.tablesRufs) if (openapi.definitions[name] == undefined) tablesMissing.set(name, RufsMicroService.tablesRufs[name]);
+				for (let name in RufsMicroService.tablesRufs) if (openapi.components.schemas[name] == undefined) tablesMissing.set(name, RufsMicroService.tablesRufs[name]);
 				const rufsServiceDbSync = new RufsServiceDbSync(this.entityManager);
 
 				const createTable = iterator => {
@@ -319,10 +305,10 @@ class RufsMicroService extends MicroServiceServer {
 				return this.loadOpenApi().
 				then(openapi => {
 					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
-					for (let name in RufsMicroService.tablesRufs) if (openApiDb.definitions[name] == undefined) openApiDb.definitions[name] = RufsMicroService.tablesRufs[name];
+					for (let name in RufsMicroService.tablesRufs) if (openApiDb.components.schemas[name] == undefined) openApiDb.components.schemas[name] = RufsMicroService.tablesRufs[name];
 
-					for (let [name, schemaDb] of Object.entries(openApiDb.definitions)) {
-						openapi.definitions[name] = this.constructor.updateJsonSchema(name, schemaDb, openapi.definitions[name]);
+					for (let [name, schemaDb] of Object.entries(openApiDb.components.schemas)) {
+						openapi.components.schemas[name] = this.constructor.updateJsonSchema(name, schemaDb, openapi.components.schemas[name]);
 					}
 
 					return this.storeOpenApi(openapi);
@@ -334,6 +320,7 @@ class RufsMicroService extends MicroServiceServer {
 		return this.entityManager.connect().
 		then(() => createRufsTables()).
 		then(() => syncDb2OpenApi()).
+		then(openapi => this.fillOpenApi(openapi)).
 		then(openapi => {
 			console.log(`[${this.constructor.name}.listen()] openapi after syncDb2OpenApi`);
 			return Promise.resolve().
@@ -358,13 +345,13 @@ RufsMicroService.tablesRufs = {
 	rufsUser: {
 		properties: {
 			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-			rufsGroupOwner: {type: "integer", notNull: true, foreignKeysImport: "rufsGroupOwner"},
-			name: {length: 32, notNull: true, unique:true},
+			rufsGroupOwner: {type: "integer", notNull: true, $ref: "#/components/schemas/rufsGroupOwner"},
+			name: {maxLength: 32, notNull: true, unique:true},
 			password: {notNull: true},
-			roles: {length: 10240},
-			routes: {length: 10240},
+			roles: {maxLength: 10240},
+			routes: {maxLength: 10240},
 			path: {},
-			menu: {length: 10240}
+			menu: {maxLength: 10240}
 		},
 		"primaryKeys": ["id"],
 		"uniqueKeys": {}
@@ -378,8 +365,8 @@ RufsMicroService.tablesRufs = {
 	},
 	rufsGroupUser: {
 		properties: {
-			rufsUser: {type: "integer", primaryKey: true, foreignKeysImport: "rufsUser"},
-			rufsGroup: {type: "integer", primaryKey: true, foreignKeysImport: "rufsGroup"}
+			rufsUser: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsUser"},
+			rufsGroup: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsGroup"}
 		},
 		"primaryKeys": ["rufsUser", "rufsGroup"],
 		"uniqueKeys": {}
@@ -394,7 +381,7 @@ RufsMicroService.defaultGroupOwnerAdmin = {
 RufsMicroService.defaultUserAdmin = {
 //	id: 1, 
 	name: "admin", rufsGroupOwner: 1, password: "admin", path: "rufs_user/search",
-	roles: '{"rufsGroupOwner":{"create":true,"update":true,"delete":true},"rufsUser":{"create":true,"update":true,"delete":true},"rufsGroup":{"create":true,"update":true,"delete":true},"rufsGroupUser":{"create":true,"update":true,"delete":true}}',
+	roles: '{"rufsGroupOwner":{"post":true,"put":true,"delete":true},"rufsUser":{"post":true,"put":true,"delete":true},"rufsGroup":{"post":true,"put":true,"delete":true},"rufsGroupUser":{"post":true,"put":true,"delete":true}}',
 	routes: '[{"path": "/app/rufs_service/:action", "controller": "RufsServiceController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
 };
 

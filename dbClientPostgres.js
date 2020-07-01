@@ -281,7 +281,7 @@ class DbClientPostgres {
 		}
 
 		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date"          , "double precision", "bytea"];
-		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "number" , "datetime-local"             , "datetime-local"          , "datetime-local"        , "integer", "integer" , "string", "datetime-local", "number"          , "string"];
+		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","json" , "number" , "date-time"                  , "date-time"               , "date-time"             , "integer", "integer" , "string", "date-time"     , "number"          , "string"];
 	}
 
 	connect() {
@@ -470,35 +470,27 @@ class DbClientPostgres {
 	}
 
 	getOpenApi() {
-		const processConstraints = mapTables => {
-/*
-SELECT rc.RDB$CONSTRAINT_NAME AS constraint_name,
-i.RDB$RELATION_NAME AS table_name,
-s.RDB$FIELD_NAME AS field_name,
-i2.RDB$RELATION_NAME AS references_table,
-s2.RDB$FIELD_NAME AS references_field,
-(s.RDB$FIELD_POSITION + 1) AS field_position
-FROM RDB$INDEX_SEGMENTS s
-LEFT JOIN RDB$INDICES i ON i.RDB$INDEX_NAME = s.RDB$INDEX_NAME
-LEFT JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME = s.RDB$INDEX_NAME
-LEFT JOIN RDB$REF_CONSTRAINTS refc ON rc.RDB$CONSTRAINT_NAME = refc.RDB$CONSTRAINT_NAME
-LEFT JOIN RDB$RELATION_CONSTRAINTS rc2 ON rc2.RDB$CONSTRAINT_NAME = refc.RDB$CONST_NAME_UQ
-LEFT JOIN RDB$INDICES i2 ON i2.RDB$INDEX_NAME = rc2.RDB$INDEX_NAME
---LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME
-LEFT JOIN RDB$INDEX_SEGMENTS s2 ON i2.RDB$INDEX_NAME = s2.RDB$INDEX_NAME AND s.RDB$FIELD_POSITION = s2.RDB$FIELD_POSITION
-WHERE rc.RDB$CONSTRAINT_TYPE = 'FOREIGN KEY'
-ORDER BY constraint_name,s.RDB$FIELD_POSITION
-*/
+		const setRef = (schema, fieldName, tableRef) => {
+			const field = schema.properties[fieldName];
+
+			if (field != undefined) {
+				field.$ref = "#/components/schemas/" + tableRef;
+			} else {
+				console.error(`${this.constructor.name}.getTablesInfo.processConstraints.setRef : field ${fieldName} not exists in schema ${schema.name}`);
+			}
+		}
+
+		const processConstraints = openapi => {
 			return this.client.query(this.client.sqlInfoConstraints).
 			then(result => {
 				return this.client.query(this.client.sqlInfoConstraintsFields).
 				then(resultFields => {
 					return this.client.query(this.client.sqlInfoConstraintsFieldsRef).
 					then(resultFieldsRef => {
-						for (let [schemaName, schemaDb] of Object.entries(mapTables.definitions)) {
-							schemaDb.primaryKeys = [];
-							schemaDb.foreignKeys = {};
-							schemaDb.uniqueKeys = {};
+						for (let [schemaName, schema] of Object.entries(openapi.components.schemas)) {
+							schema.primaryKeys = [];
+							schema.foreignKeys = {};
+							schema.uniqueKeys = {};
 							const tableName = CaseConvert.camelToUnderscore(schemaName);
 							const constraints = result.rows.filter(item => item.tableName.trim().toLowerCase() == tableName);
 
@@ -511,7 +503,6 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 
 								if (constraint.constraintType.toString().trim() == "FOREIGN KEY") {
 									const foreignKey = {fields: [], fieldsRef: []};
-									schemaDb.foreignKeys[name] = foreignKey;
 
 									for (let item of list) {
 										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
@@ -521,48 +512,69 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 									for (let itemRef of listRef) {
 										const columnName = CaseConvert.underscoreToCamel(itemRef.columnName.trim().toLowerCase(), false);
 										foreignKey.fieldsRef.push(columnName);
-										const tableName = CaseConvert.underscoreToCamel(itemRef.tableName.trim().toLowerCase(), false);
-										foreignKey.tableRef = tableName;
+										const tableRef = CaseConvert.underscoreToCamel(itemRef.tableName.trim().toLowerCase(), false);
+
+										if (foreignKey.tableRef == undefined || foreignKey.tableRef == tableRef)
+											foreignKey.tableRef = tableRef;
+										else 
+											console.error(`[${this.constructor.name}.getOpenApi().processConstraints()] : tableRef already defined : new (${tableRef}, old (${foreignKey.tableRef}))`);
 									}
 
-									for (let i = 0; i < foreignKey.fields.length; i++) {
-										const field = schemaDb.properties[foreignKey.fields[i]];
-
-										if (field != undefined) {
-											if (field.foreignKeysImport == undefined) field.foreignKeysImport = [];
-											field.foreignKeysImport.push({name: name, table: foreignKey.tableRef, field: foreignKey.fieldsRef[i]});
-										} else {
-											console.error(`${this.constructor.name}.getTablesInfo.processConstraints : field ${foreignKey.fields[i]} not exists in schema ${schemaName}`);
-										}
+									if (foreignKey.fields.length != foreignKey.fieldsRef.length) {
+										console.error(`[${this.constructor.name}.getOpenApi().processConstraints()] : fields and fieldsRef length don't match : fields (${foreignKey.fields.toString()}, fieldsRef (${foreignKey.fieldsRef.toString()}))`);
+										continue;
 									}
+
+									if (foreignKey.fields.length == 1) {
+										setRef(schema, foreignKey.fields[0], foreignKey.tableRef);
+										continue;
+									}
+
+									if (foreignKey.fields.length > 1 && foreignKey.fields.indexOf(foreignKey.tableRef) >= 0) {
+										setRef(schema, foreignKey.tableRef, foreignKey.tableRef);
+									}
+
+									schema.foreignKeys[name] = foreignKey;
 								} else if (constraint.constraintType.toString().trim() == "UNIQUE") {
-									schemaDb.uniqueKeys[name] = [];
+									schema.uniqueKeys[name] = [];
 
 									for (let item of list) {
 										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
-										schemaDb.uniqueKeys[name].push(columnName);
+										schema.uniqueKeys[name].push(columnName);
 									}
 								} else if (constraint.constraintType.toString().trim() == "PRIMARY KEY") {
 									for (let item of list) {
 										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
-										schemaDb.primaryKeys.push(columnName);
+										schema.primaryKeys.push(columnName);
+										if (schema.required.indexOf(columnName) < 0) schema.required.push(columnName);
 									}
 								}
 							}
 
-							for (let [fieldName, field] of Object.entries(schemaDb.properties)) {
-								if (field.foreignKeysImport != undefined && Array.isArray(field.foreignKeysImport)) {
-									for (let item of field.foreignKeysImport) {
-										if (fieldName.startsWith(item.table) == true) {
-											field.foreignKeysImport = [item];
-											break;
-										}
+							for (let [name, foreignKey] of Object.entries(schema.foreignKeys)) {
+								const candidates = [];
+
+								for (const fieldName of foreignKey.fields) {
+									const field = schema.properties[fieldName];
+
+									if (field != undefined && field.$ref == undefined) {
+										candidates.push(fieldName);
 									}
 								}
+
+								if (candidates.length == 1) {
+									setRef(schema, candidates[0], foreignKey.tableRef);
+									delete schema.foreignKeys[name];
+								}
+							}
+
+							if (schema.required.length == 0) {
+								console.error(`[${this.constructor.name}.getOpenApi().processColumns()] missing required fields of table ${schemaName}`);
+								delete openapi.components.schemas[schemaName];
 							}
 						}
 
-						return mapTables;
+						return openapi;
 					});
 				});
 			}).
@@ -574,22 +586,25 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 
 		const processColumns = () => {
 			return this.client.query(this.client.sqlInfoTables).then(result => {
-				let mapTables = {definitions: {}};
+				let openapi = {"components": {"schemas": {}}};
 
 				for (let rec of result.rows) {
 					let typeIndex = this.sqlTypes.indexOf(rec.dataType.trim().toLowerCase());
 
 					if (typeIndex >= 0) {
 						const tableName = CaseConvert.underscoreToCamel(rec.tableName.trim().toLowerCase(), false);
-						let entityClass;
+						let schema;
 
-						if (mapTables.definitions[tableName] != undefined) {
-							entityClass = mapTables.definitions[tableName];
+						if (openapi.components.schemas[tableName] != undefined) {
+							schema = openapi.components.schemas[tableName];
 						} else {
-							entityClass = {};
-							entityClass.properties = {};
-							mapTables.definitions[tableName] = entityClass;
+							schema = {};
+							schema.type = "object";
+							schema.properties = {};
+							openapi.components.schemas[tableName] = schema;
 						}
+
+						if (schema.required == undefined) schema.required = [];
 
 						const fieldName = CaseConvert.underscoreToCamel(rec.columnName.trim().toLowerCase(), false);
 						let field = {}
@@ -602,8 +617,10 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 						field.default = rec.columnDefault; // 'pt-br'::character varying
 						field.description = rec.description;
 
+						if (field.notNull == true) schema.required.push(fieldName);
+
 						if (rec.dataType.trim().toLowerCase().startsWith("character") == true)
-							field.length = rec.characterMaximumLength; // > 0 // 255
+							field.maxLength = rec.characterMaximumLength; // > 0 // 255
 						// adjusts
 						// TODO : check
 						if (field.type == "number" && (field.scale == undefined || field.scale == 0)) field.type = "integer";
@@ -620,18 +637,18 @@ ORDER BY constraint_name,s.RDB$FIELD_POSITION
 						field.identityGeneration = rec.identityGeneration;//.trim().toLowerCase(); // BY DEFAULT,ALWAYS
 						// SERIAL TYPE
 						if (rec.default != undefined && rec.default.startsWith("nextval")) field.identityGeneration = "BY DEFAULT";
-						entityClass.properties[fieldName] = field;
+						schema.properties[fieldName] = field;
 					} else {
 						console.error(`DbClientPostgres.getTablesInfo().processColumns() : Invalid Database Type : ${rec.dataType.trim().toLowerCase()}, full rec : ${JSON.stringify(rec)}`);
 					}
 				}
 
-				return mapTables;
+				return openapi;
 			});
 		};
 
 		return processColumns().
-		then(mapTables => processConstraints(mapTables));
+		then(openapi => processConstraints(openapi));
 	}
 
 }

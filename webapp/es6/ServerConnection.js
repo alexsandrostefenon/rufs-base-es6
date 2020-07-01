@@ -229,22 +229,22 @@ class RufsService extends DataStoreItem {
 	}
 
 	save(itemSend) {
-    	return this.httpRest.save(this.pathRest + "/create", this.copyFields(itemSend)).then(data => this.updateList(data));
+    	return this.httpRest.save(this.pathRest, this.copyFields(itemSend)).then(data => this.updateList(data));
 	}
 
 	update(primaryKey, itemSend) {
-        return this.httpRest.update(this.pathRest + "/update", primaryKey, this.copyFields(itemSend)).then(data => {
+        return this.httpRest.update(this.pathRest, primaryKey, this.copyFields(itemSend)).then(data => {
             let pos = this.findPos(primaryKey);
         	return this.updateList(data, pos, pos);
         });
 	}
 
 	patch(itemSend) {
-    	return this.httpRest.patch(this.pathRest + "/patch", this.copyFields(itemSend)).then(data => this.updateList(data));
+    	return this.httpRest.patch(this.pathRest, this.copyFields(itemSend)).then(data => this.updateList(data));
 	}
 
 	remove(primaryKey) {
-        return this.httpRest.remove(this.pathRest + "/delete", primaryKey);//.then(data => this.serverConnection.removeInternal(this.name, primaryKey));
+        return this.httpRest.remove(this.pathRest, primaryKey);//.then(data => this.serverConnection.removeInternal(this.name, primaryKey));
 	}
 
 	queryRemote(params) {
@@ -284,11 +284,16 @@ class ServerConnection extends DataStoreManager {
 	get(schemaName, primaryKey, ignoreCache) {
 		return super.get(schemaName, primaryKey, ignoreCache).
 		then(res => {
-			if (res != null && res != undefined) return Promise.resolve(res);
-			const service = this.getService(schemaName);
+			if (res != null && res != undefined) {
+				res.isCache = true;
+				return Promise.resolve(res);
+			}
+
+			const service = this.getSchema(schemaName);
 			if (service == null || service == undefined) return Promise.resolve(null);
-			return this.httpRest.get(service.pathRest + "/read", primaryKey).
+			return this.httpRest.get(service.pathRest, primaryKey).
 			then(data => {
+				data.isCache = false;
 				return service.cache(primaryKey, data);
 			});
 		});
@@ -357,19 +362,19 @@ class ServerConnection extends DataStoreManager {
     		this.httpRest.setToken(loginResponse.authctoken);
     		const schemas = [];
             // depois carrega os serviços autorizados
-            for (let [schemaName, params] of Object.entries(loginResponse.openapi.definitions)) {
+            for (let [schemaName, params] of Object.entries(loginResponse.openapi.components.schemas)) {
             	if (params != null) {
 					if (params.appName == undefined) params.appName = path;
 					params.access = loginResponse.roles[schemaName];
 
 					if (params.access != undefined) {
-						if (params.access.query == undefined) params.access.query = true;
-						if (params.access.read == undefined) params.access.read = true;
-						if (params.access.create == undefined) params.access.create = false;
-						if (params.access.update == undefined) params.access.update = false;
+						if (params.access.get == undefined) params.access.get = true;
+						if (params.access.post == undefined) params.access.post = false;
+						if (params.access.patch == undefined) params.access.patch = false;
+						if (params.access.put == undefined) params.access.put = false;
 						if (params.access.delete == undefined) params.access.delete = false;
 					} else {
-						params.access = {"create": false, "read": false, "update": false, "delete": false, "query": false};
+						params.access = {"post": false, "patch": false, "get": false, "put": false, "delete": false};
 					}
 
 					let service = new RufsServiceClass(schemaName, params, this, this.httpRest);
@@ -391,10 +396,10 @@ class ServerConnection extends DataStoreManager {
 
     		const listQueryRemote = [];
 
-    		for (let serviceName of listDependencies) {
-    			const service = this.services[serviceName];
+    		for (let $ref of listDependencies) {
+    			const service = this.getSchema($ref);
 
-				if (service.params.access.query == true) {
+				if (service.params.access.get == true) {
 					listQueryRemote.push(service);
 				}
     		}

@@ -18,7 +18,7 @@ class DataStoreManagerDb extends DataStoreManager {
 		return super.get(schemaName, primaryKey, ignoreCache).
 		then(res => {
 			if (res != null && res != undefined) return Promise.resolve(res);
-			const service = this.getService(schemaName);
+			const service = this.getSchema(schemaName);
 			if (service == null || service == undefined) return Promise.resolve(null);
 			return this.entityManager.findOne(schemaName, primaryKey).then(data => service.cache(primaryKey, data));
 		});
@@ -31,7 +31,7 @@ class RequestFilter {
 		let service;
 
 		try {
-			service = RequestFilter.getService (tokenData, serviceName);
+			service = RequestFilter.getSchema(tokenData, serviceName);
 		} catch (e) {
 			return Response.unauthorized(e.Message);
 		}
@@ -63,8 +63,8 @@ class RequestFilter {
 		return response;
 	}
 	//
-	static getService(tokenData, serviceName) {
-		return RequestFilter.dataStoreManager.getService(serviceName, tokenData);
+	static getSchema(tokenData, serviceName) {
+		return RequestFilter.dataStoreManager.getSchema(serviceName, tokenData);
 	}
 	// public
 	static processCreate(user, entityManager, serviceName, obj, microService) {
@@ -123,7 +123,7 @@ class RequestFilter {
 
 		if (response != null) Promise.resolve(response);
 
-		const service = RequestFilter.getService(user, serviceName);
+		const service = RequestFilter.getSchema(user, serviceName);
 
 		const process = keys => {
 			if (keys.length > 0) {
@@ -154,7 +154,7 @@ class RequestFilter {
 			if (rufsGroupEntries.length > 0) queryParameters[rufsGroupEntries[0].fieldName] = tokenData.groups;
 		}
 
-		const service = RequestFilter.getService(tokenData, serviceName);
+		const service = RequestFilter.getSchema(tokenData, serviceName);
 		const obj = service.copyFields(queryParameters);
 		let ret;
 
@@ -169,7 +169,7 @@ class RequestFilter {
 	static processQuery(tokenData, queryParams, entityManager, serviceName) {
 		const fields = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams);
 		let orderBy = [];
-		const service = RequestFilter.getService (tokenData, serviceName);
+		const service = RequestFilter.getSchema(tokenData, serviceName);
 
 		for (let fieldName of service.primaryKeys) {
 			const field = service.properties[fieldName];
@@ -212,7 +212,13 @@ class RequestFilter {
 		const serviceAuth = req.tokenPayload.roles[serviceName];
 		// verfica a permissao de acesso
 		if (serviceAuth != undefined) {
-			const defaultAccess = {query: true, read: true, create: true, update: false, delete: false, patch: true};
+			if (uriPath == undefined || uriPath == "") {
+				uriPath = req.method.toLowerCase();
+			} else if (req.method.toLowerCase() == "get" && uriPath == "query") {
+				uriPath = "get";
+			}
+
+			const defaultAccess = {get: true, post: true, patch: true, put: false, delete: false};
 
 			if (serviceAuth[uriPath] != undefined) {
 				access = serviceAuth[uriPath];
@@ -253,24 +259,24 @@ class RequestFilter {
 		const queryParams = req.query;
 		let obj = null;
 
-		if (uriPath == "create" || uriPath == "update" || uriPath == "patch") {
+		if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
 			obj = req.body;
 		}
 
 		let cf;
 
-		if (uriPath == "create") {
-			cf = RequestFilter.processCreate(req.tokenPayload, entityManager, serviceName, obj, microService);
-		} else if (uriPath == "update") {
-			cf = RequestFilter.processUpdate(req.tokenPayload, queryParams, entityManager, serviceName, obj, microService);
-		} else if (uriPath == "patch") {
-			cf = RequestFilter.processPatch(req.tokenPayload, entityManager, serviceName, obj, microService);
-		} else if (uriPath == "delete") {
-			cf = RequestFilter.processDelete(req.tokenPayload, queryParams, entityManager, serviceName, microService);
-		} else if (uriPath == "read") {
-			cf = RequestFilter.processRead(req.tokenPayload, queryParams, entityManager, serviceName, useDocument);
-		} else if (uriPath == "query") {
+		if (req.method == "GET" && uriPath == "query") {
 			cf = RequestFilter.processQuery(req.tokenPayload, queryParams, entityManager, serviceName);
+		} else if (req.method == "POST") {
+			cf = RequestFilter.processCreate(req.tokenPayload, entityManager, serviceName, obj, microService);
+		} else if (req.method == "PUT") {
+			cf = RequestFilter.processUpdate(req.tokenPayload, queryParams, entityManager, serviceName, obj, microService);
+		} else if (req.method == "PATCH") {
+			cf = RequestFilter.processPatch(req.tokenPayload, entityManager, serviceName, obj, microService);
+		} else if (req.method == "DELETE") {
+			cf = RequestFilter.processDelete(req.tokenPayload, queryParams, entityManager, serviceName, microService);
+		} else if (req.method == "GET") {
+			cf = RequestFilter.processRead(req.tokenPayload, queryParams, entityManager, serviceName, useDocument);
 		} else {
 			return Promise.resolve(Response.internalServerError("unknow rote"));
 		}
@@ -325,9 +331,9 @@ class RequestFilter {
         return Promise.resolve().then(() => {
         	console.log(`RequestFilter.updateRufsServices() : reseting RequestFilter.dataStoreManager`);
 			const listDataStore = [];
-			// TODO : trocar openapi.definitions por openapi.paths
-        	for (let name in openapi.definitions) {
-        		listDataStore.push(new DataStore(name, openapi.definitions[name]));
+			// TODO : trocar openapi.components.schemas por openapi.paths
+        	for (let name in openapi.components.schemas) {
+        		listDataStore.push(new DataStore(name, openapi.components.schemas[name]));
         	}
 
         	RequestFilter.dataStoreManager = new DataStoreManagerDb(listDataStore, entityManager);

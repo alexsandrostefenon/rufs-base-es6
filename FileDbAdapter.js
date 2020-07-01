@@ -20,7 +20,7 @@ class FileDbAdapter {
 	}
 
 	store(tableName, list) {
-		const schema = this.openapi.definitions[tableName];
+		const schema = this.openapi.components.schemas[tableName];
 		let listOut;
 
 		if (schema.properties.id != undefined) {
@@ -47,7 +47,7 @@ class FileDbAdapter {
 	insert(tableName, obj) {
 		return this.load(tableName).
 		then(list => {
-			if (this.openapi.definitions[tableName].properties.id != undefined) {
+			if (this.openapi.components.schemas[tableName].properties.id != undefined) {
 				if (list.length > 0) {
 					obj.id = list[list.length-1].id + 1;
 				} else {
