@@ -3,6 +3,7 @@ import {DbClientPostgres} from "./dbClientPostgres.js";
 import {RequestFilter} from "./RequestFilter.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
+import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {FileDbAdapter} from "./FileDbAdapter.js";
 import {Response} from "./server-utils.js";
 
@@ -155,25 +156,10 @@ class RufsMicroService extends MicroServiceServer {
 		this.entityManager = new DbClientPostgres(this.config.dbConfig);
 	}
 
-	processRequest(req, resource, action) {
-		return Promise.resolve();
-	}
-
 	onRequest(req, res, next, resource, action) {
 		let access = RequestFilter.checkAuthorization(req, resource, action);
 		if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
-		let response;
-
-		if (this.openapi != undefined && this.openapi.components.schemas[resource] != undefined) {
-			response = this.processRequest(req, resource, action).then(data => Response.ok(data));
-		} else {
-			response = RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
-		}
-
-		return response.then(responseData => {
-			if (action != "query") console.log(responseData);
-			return responseData;
-		});
+		return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
 	}
 
 	loadRufsTables() {
@@ -219,7 +205,7 @@ class RufsMicroService extends MicroServiceServer {
 			return this.entityManager.getOpenApi().
 			then(openapi => {
 				let tablesMissing = new Map();
-				for (let name in RufsMicroService.tablesRufs) if (openapi.components.schemas[name] == undefined) tablesMissing.set(name, RufsMicroService.tablesRufs[name]);
+				for (let name in RufsMicroService.openApiRufs.components.schemas) if (openapi.components.schemas[name] == undefined) tablesMissing.set(name, RufsMicroService.openApiRufs.components.schemas[name]);
 				const rufsServiceDbSync = new RufsServiceDbSync(this.entityManager);
 
 				const createTable = iterator => {
@@ -305,10 +291,28 @@ class RufsMicroService extends MicroServiceServer {
 				return this.loadOpenApi().
 				then(openapi => {
 					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
-					for (let name in RufsMicroService.tablesRufs) if (openApiDb.components.schemas[name] == undefined) openApiDb.components.schemas[name] = RufsMicroService.tablesRufs[name];
+
+					for (let name in RufsMicroService.openApiRufs.components.schemas) {
+						if (openApiDb.components.schemas[name] == undefined) {
+							openApiDb.components.schemas[name] = RufsMicroService.openApiRufs.components.schemas[name];
+						}
+					}
 
 					for (let [name, schemaDb] of Object.entries(openApiDb.components.schemas)) {
-						openapi.components.schemas[name] = this.constructor.updateJsonSchema(name, schemaDb, openapi.components.schemas[name]);
+						openApiDb.components.schemas[name] = OpenApi.mergeSchemas(name, schemaDb, openapi.components.schemas[name]);
+					}
+
+					OpenApi.fillOpenApi(openApiDb, {requestBodyContentType: this.config.requestBodyContentType});
+//					OpenApi.merge(openapi, openApiDb);
+
+					for (let name in openApiDb.components.schemas) {
+						if (openapi.components.schemas[name] == undefined) {
+							openapi.components.schemas[name] = openApiDb.components.schemas[name];
+							openapi.paths["/" + name] = openApiDb.paths["/" + name];
+							openapi.components.parameters[name] = openApiDb.components.parameters[name];
+							openapi.components.requestBodies[name] = openApiDb.components.requestBodies[name];
+							openapi.components.responses[name] = openApiDb.components.responses[name];
+						}
 					}
 
 					return this.storeOpenApi(openapi);
@@ -320,7 +324,6 @@ class RufsMicroService extends MicroServiceServer {
 		return this.entityManager.connect().
 		then(() => createRufsTables()).
 		then(() => syncDb2OpenApi()).
-		then(openapi => this.fillOpenApi(openapi)).
 		then(openapi => {
 			console.log(`[${this.constructor.name}.listen()] openapi after syncDb2OpenApi`);
 			return Promise.resolve().
@@ -334,42 +337,46 @@ class RufsMicroService extends MicroServiceServer {
 
 }
 
-RufsMicroService.tablesRufs = {
-	rufsGroupOwner: {
-		properties: {
-			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-			name: {notNull: true, unique:true}
-		},
-		"primaryKeys": ["id"]
-	},
-	rufsUser: {
-		properties: {
-			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-			rufsGroupOwner: {type: "integer", notNull: true, $ref: "#/components/schemas/rufsGroupOwner"},
-			name: {maxLength: 32, notNull: true, unique:true},
-			password: {notNull: true},
-			roles: {maxLength: 10240},
-			routes: {maxLength: 10240},
-			path: {},
-			menu: {maxLength: 10240}
-		},
-		"primaryKeys": ["id"],
-		"uniqueKeys": {}
-	},
-	rufsGroup: {
-		properties: {
-			id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-			name: {notNull: true, unique:true}
-		},
-		"primaryKeys": ["id"]
-	},
-	rufsGroupUser: {
-		properties: {
-			rufsUser: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsUser"},
-			rufsGroup: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsGroup"}
-		},
-		"primaryKeys": ["rufsUser", "rufsGroup"],
-		"uniqueKeys": {}
+RufsMicroService.openApiRufs = {
+	components: {
+		schemas: {
+			rufsGroupOwner: {
+				properties: {
+					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
+					name: {notNull: true, unique:true}
+				},
+				"primaryKeys": ["id"]
+			},
+			rufsUser: {
+				properties: {
+					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
+					rufsGroupOwner: {type: "integer", notNull: true, $ref: "#/components/schemas/rufsGroupOwner"},
+					name: {maxLength: 32, notNull: true, unique:true},
+					password: {notNull: true},
+					roles: {maxLength: 10240},
+					routes: {maxLength: 10240},
+					path: {},
+					menu: {maxLength: 10240}
+				},
+				"primaryKeys": ["id"],
+				"uniqueKeys": {}
+			},
+			rufsGroup: {
+				properties: {
+					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
+					name: {notNull: true, unique:true}
+				},
+				"primaryKeys": ["id"]
+			},
+			rufsGroupUser: {
+				properties: {
+					rufsUser: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsUser"},
+					rufsGroup: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsGroup"}
+				},
+				"primaryKeys": ["rufsUser", "rufsGroup"],
+				"uniqueKeys": {}
+			}
+		}
 	}
 };
 

@@ -1,5 +1,6 @@
 import fs from "fs";
 import jwt from "jsonwebtoken";
+import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {Response} from "./server-utils.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {DataStoreManager, Filter} from "./webapp/es6/DataStore.js";
@@ -9,8 +10,9 @@ import {DbClientPostgres} from "./dbClientPostgres.js";
 const fsPromises = fs.promises;
 
 class DataStoreManagerDb extends DataStoreManager {
-	constructor(listService, entityManager) {
-		super(listService);
+
+	constructor(listService, openapi, entityManager) {
+		super(listService, openapi);
 		this.entityManager = entityManager;
 	}
 
@@ -23,6 +25,7 @@ class DataStoreManagerDb extends DataStoreManager {
 			return this.entityManager.findOne(schemaName, primaryKey).then(data => service.cache(primaryKey, data));
 		});
 	}
+
 }
 
 class RequestFilter {
@@ -155,7 +158,7 @@ class RequestFilter {
 		}
 
 		const service = RequestFilter.getSchema(tokenData, serviceName);
-		const obj = service.copyFields(queryParameters);
+		const obj = OpenApi.copyFields(queryParameters, service);
 		let ret;
 
 		if (onlyPrimaryKey == true)
@@ -336,7 +339,7 @@ class RequestFilter {
         		listDataStore.push(new DataStore(name, openapi.components.schemas[name]));
         	}
 
-        	RequestFilter.dataStoreManager = new DataStoreManagerDb(listDataStore, entityManager);
+        	RequestFilter.dataStoreManager = new DataStoreManagerDb(listDataStore, openapi, entityManager);
         });
 	}
 

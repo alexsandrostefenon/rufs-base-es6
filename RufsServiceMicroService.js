@@ -1,5 +1,6 @@
 import {RufsMicroService} from "./RufsMicroService.js";
 import {RequestFilter} from "./RequestFilter.js";
+import {OpenApi} from "./webapp/es6/OpenApi.js";
 
 class RufsServiceMicroService extends RufsMicroService {
 
@@ -27,7 +28,7 @@ class RufsServiceMicroService extends RufsMicroService {
 			}
 			
 			promise.then(schemaChanged => {
-				openapi.components.schemas[name] = this.constructor.updateJsonSchema(schemaChanged.name, schemaChanged, schemaOld);
+				openapi.components.schemas[name] = OpenApi.mergeSchemas(schemaChanged.name, schemaChanged, schemaOld);
 				return this.storeOpenApi(openapi);
 			});
 		}).

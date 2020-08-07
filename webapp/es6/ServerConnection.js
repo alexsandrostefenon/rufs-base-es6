@@ -1,4 +1,5 @@
 import {CaseConvert} from "./CaseConvert.js";
+import {OpenApi} from "./OpenApi.js";
 import {DataStoreItem, DataStoreManager} from "./DataStore.js";
 
 class HttpRestRequest {
@@ -45,68 +46,8 @@ class HttpRestRequest {
 		if (urlSearchParams == undefined || urlSearchParams == null)
 			return {};
 
-		const searchParams = {};
-		let entries;
-
-		if (urlSearchParams.entries != undefined)
-			entries = urlSearchParams.entries();
-		else
-			entries = Object.entries(urlSearchParams);
-
-		for (const [key,value] of entries) {
-			console.log(`CrudController.constructor() : param ${key} : ${value}`);
-
-			if (value.startsWith("{")) {
-				searchParams[key] = JSON.parse(value);
-			} else {
-				let list = key.split(".");
-				let lastChild = searchParams;
-				let i = 0;
-
-				while (i < list.length-1) {
-					let subKey = list[i++];
-					if (lastChild[subKey] == undefined) lastChild[subKey] = {};
-					lastChild = lastChild[subKey];
-				}
-
-				lastChild[list[i]] = value;
-			}
-		}
-
+		const searchParams = Qs.parse(urlSearchParams, {ignoreQueryPrefix: true, allowDots: true});
 		if (properties != undefined) convertSearchParamsTypes(searchParams, properties);
-		return searchParams;
-	}
-
-	static jsonToURLSearchParams(hashSearchObj) {
-		function objectToParams(object) {
-			let isJsObject = p => typeof(p) == "object";
-
-			function subObjectToParams(key, object) {
-				if (object == undefined) return "";
-				return Object.keys(object).map((childKey) => {
-					if (object[childKey] instanceof Date) {
-						return `${key}.${encodeURIComponent(childKey)}=${encodeURIComponent(object[childKey].toJSON())}`;
-					} else if (isJsObject(object[childKey])) {
-						return subObjectToParams(`${key}.${encodeURIComponent(childKey)}`, object[childKey]);
-					} else {
-						return `${key}.${encodeURIComponent(childKey)}=${encodeURIComponent(object[childKey])}`;
-					}
-				}).join('&');
-			}
-
-			return Object.keys(object).map((key) => {
-				if (object[key] instanceof Date) {
-					return `${encodeURIComponent(key)}=${encodeURIComponent(object[key].toJSON())}`;
-				} else if (isJsObject(object[key])) {
-					return subObjectToParams(encodeURIComponent(key), object[key]);
-				} else {
-					return `${encodeURIComponent(key)}=${encodeURIComponent(object[key])}`;
-				}
-			}).join('&');
-		}
-
-		const hashSearch = objectToParams(hashSearchObj);
-		const searchParams = new URLSearchParams(hashSearch);
 		return searchParams;
 	}
 	// private
@@ -114,7 +55,7 @@ class HttpRestRequest {
 		let url = this.url + "/" + path;
 		
 		if (params != undefined && params != null) {
-			url = url + "?" + HttpRestRequest.jsonToURLSearchParams(params).toString();
+			url = url + "?" + Qs.stringify(params, {allowDots: true});
 		}
 		
 		let options = {};
@@ -210,12 +151,12 @@ class HttpRestRequest {
 
 class RufsService extends DataStoreItem {
 
-	constructor(name, params, serverConnection, httpRest) {
-		super(name, params);
+	constructor(name, schema, serverConnection, httpRest) {
+		super(name, schema);
 		this.httpRest = httpRest;
         this.serverConnection = serverConnection;
-        this.params = params;
-        let appName = params.appName != undefined ? params.appName : "crud";
+        this.params = schema;
+        let appName = schema.appName != undefined ? schema.appName : "crud";
         this.path = CaseConvert.camelToUnderscore(name);
         this.pathRest = appName + "/rest/" + this.path;
 	}
@@ -229,18 +170,23 @@ class RufsService extends DataStoreItem {
 	}
 
 	save(itemSend) {
-    	return this.httpRest.save(this.pathRest, this.copyFields(itemSend)).then(data => this.updateList(data));
+		let schema = OpenApi.getSchemaFromRequestBodies(this.serverConnection.openapi, this.name);
+
+		if (schema == undefined)
+			schema = this;
+
+    	return this.httpRest.save(this.pathRest, OpenApi.copyFields(itemSend, schema)).then(data => this.updateList(data));
 	}
 
 	update(primaryKey, itemSend) {
-        return this.httpRest.update(this.pathRest, primaryKey, this.copyFields(itemSend)).then(data => {
+        return this.httpRest.update(this.pathRest, primaryKey, OpenApi.copyFields(itemSend, this)).then(data => {
             let pos = this.findPos(primaryKey);
         	return this.updateList(data, pos, pos);
         });
 	}
 
 	patch(itemSend) {
-    	return this.httpRest.patch(this.pathRest, this.copyFields(itemSend)).then(data => this.updateList(data));
+    	return this.httpRest.patch(this.pathRest, OpenApi.copyFields(itemSend, this)).then(data => this.updateList(data));
 	}
 
 	remove(primaryKey) {
@@ -362,30 +308,28 @@ class ServerConnection extends DataStoreManager {
     		this.httpRest.setToken(loginResponse.authctoken);
     		const schemas = [];
             // depois carrega os serviços autorizados
-            for (let [schemaName, params] of Object.entries(loginResponse.openapi.components.schemas)) {
-            	if (params != null) {
-					if (params.appName == undefined) params.appName = path;
-					params.access = loginResponse.roles[schemaName];
+			// TODO : trocar openapi.components.schemas por openapi.paths
+            for (let [schemaName, schema] of Object.entries(loginResponse.openapi.components.schemas)) {
+				if (schema.appName == undefined) schema.appName = path;
+				const service = this.services[schemaName] = new RufsServiceClass(schemaName, schema, this, this.httpRest);
+				const methods = ["get", "post", "patch", "put", "delete"];
+				const servicePath = loginResponse.openapi.paths["/" + schemaName];
+				service.access = {};
 
-					if (params.access != undefined) {
-						if (params.access.get == undefined) params.access.get = true;
-						if (params.access.post == undefined) params.access.post = false;
-						if (params.access.patch == undefined) params.access.patch = false;
-						if (params.access.put == undefined) params.access.put = false;
-						if (params.access.delete == undefined) params.access.delete = false;
-					} else {
-						params.access = {"post": false, "patch": false, "get": false, "put": false, "delete": false};
-					}
+				for (let method of methods) {
+					if (servicePath[method] != undefined)
+						service.access[method] = true;
+					else
+						service.access[method] = false;
+				}
 
-					let service = new RufsServiceClass(schemaName, params, this, this.httpRest);
-					if (service.properties.rufsGroupOwner != undefined && this.rufsGroupOwner != 1) service.properties.rufsGroupOwner.hiden = true;
-					if (service.properties.rufsGroupOwner != undefined && service.properties.rufsGroupOwner.default == undefined) service.properties.rufsGroupOwner.default = this.rufsGroupOwner;
-					schemas.push(service);
-            	}
+				if (service.properties.rufsGroupOwner != undefined && this.rufsGroupOwner != 1) service.properties.rufsGroupOwner.hiden = true;
+				if (service.properties.rufsGroupOwner != undefined && service.properties.rufsGroupOwner.default == undefined) service.properties.rufsGroupOwner.default = this.rufsGroupOwner;
+				schemas.push(service);
             }
 
-            this.setSchemas(schemas);
-            const listDependencies = [];
+            this.setSchemas(schemas, loginResponse.openapi);
+            let listDependencies = [];
 
     		for (let serviceName in this.services) {
     			if (listDependencies.includes(serviceName) == false) {
@@ -394,12 +338,13 @@ class ServerConnection extends DataStoreManager {
     			}
     		}
 
+    		if (user == "admin") listDependencies = ["rufsUser", "rufsGroupOwner", "rufsGroup", "rufsGroupUser"];
     		const listQueryRemote = [];
 
     		for (let $ref of listDependencies) {
     			const service = this.getSchema($ref);
 
-				if (service.params.access.get == true) {
+				if (service.access.get == true) {
 					listQueryRemote.push(service);
 				}
     		}

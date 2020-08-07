@@ -1,10 +1,10 @@
 import {CaseConvert} from "./CaseConvert.js";
+import {OpenApi} from "./OpenApi.js";
 
 class RufsSchema {
 
-	constructor(name, schema) {
-		this.name = name;
-		this.properties = typeof schema.properties === "string" ? JSON.parse(schema.properties) : schema.properties;
+	setSchema(schema) {
+		this.properties = schema.properties;
 		this.foreignKeys = schema.foreignKeys || {};
 		this.uniqueKeys = schema.uniqueKeys;
 		this.primaryKeys = schema.primaryKeys || [];
@@ -52,6 +52,11 @@ class RufsSchema {
 		}
 	}
 
+	constructor(name, schema) {
+		this.name = name;
+		this.setSchema(schema);
+	}
+
 	checkPrimaryKey(obj) {
 		var check = true;
 
@@ -63,41 +68,6 @@ class RufsSchema {
 		}
 
 		return check;
-	}
-	// public
-	copyFields(dataIn) {
-		const ret = {};
-
-		for (let [fieldName, field] of Object.entries(this.properties)) {
-			const value = dataIn[fieldName];
-
-			if (value != undefined) {
-				const type = field["type"];
-				
-				if (type == undefined || type == "string") {
-					ret[fieldName] = value;
-				} else if (type == "number" || type == "integer") {
-					if (typeof value == "string") {
-						ret[fieldName] = new Number(value).valueOf();
-					} else {
-						ret[fieldName] = value;
-					}
-				} else if (type == "boolean") {
-					if (value == true)
-						ret[fieldName] = true;
-					else if (value == false)
-						ret[fieldName] = false;
-					else
-						ret[fieldName] = (value == "true");
-				} else if (type == "date" || type == "date-time") {
-					ret[fieldName] = new Date(value);
-				} else {
-					ret[fieldName] = value;
-				}
-			}
-		}
-
-		return ret;
 	}
 	// private, projected for extract primaryKey and uniqueKeys
 	static copyFieldsFromList(dataIn, fieldNames, retutnNullIfAnyEmpty) {
@@ -225,16 +195,8 @@ class DataStore extends RufsSchema {
 // manager of  IndexedDb collections
 class DataStoreManager {
 
-	setSchemas(list) {
-		this.services = {};
-
-		if (Array.isArray(list) == true) {
-			for (let service of list) {
-				this.services[service.name] = service;
-			}
-		}
-
-		for (let [name, schema] of Object.entries(this.services)) {
+	setSchemas(list, openapi) {
+		const removeBrokenRefs = (schema, openapi) => {
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				if (field.$ref != undefined) {
 					let $ref = field.$ref;
@@ -247,13 +209,45 @@ class DataStoreManager {
 					if (this.services[$ref] == undefined) {
 						delete field.$ref;
 					}
+
+					if (openapi != undefined && openapi.components.schemas[$ref] == undefined) {
+						delete field.$ref;
+					}
+				}
+			}
+		}
+
+		this.openapi = openapi;
+		// TODO : trocar o uso de services por openapi.paths
+		this.services = {};
+
+		if (Array.isArray(list) == true) {
+			for (let service of list) {
+				this.services[service.name] = service;
+			}
+		}
+
+		for (let [name, schema] of Object.entries(this.services)) {
+			removeBrokenRefs(schema, openapi);
+		}
+
+		if (openapi == undefined) return;
+
+		for (let [name, schema] of Object.entries(openapi.components.schemas)) {
+			removeBrokenRefs(schema, openapi);
+		}
+
+		for (let [name, requestBody] of Object.entries(openapi.components.requestBodies)) {
+			for (const [mediaTypeName, mediaTypeObject] of Object.entries(requestBody.content)) {
+				if (mediaTypeObject.schema.properties != undefined) {
+					removeBrokenRefs(mediaTypeObject.schema, openapi);
 				}
 			}
 		}
 	}
 
-	constructor(list) {
-		this.setSchemas(list);
+	constructor(list, openapi) {
+		this.setSchemas(list, openapi);
 	}
 
 	getSchema($ref, tokenData) {
@@ -297,40 +291,24 @@ class DataStoreManager {
 			document = obj;
 		}
 
-		const service = this.getSchema(schemaName, tokenData);
 		let promises = [];
 		// One To One
 		{
-			const listToGet = [];
-
-			for (let [fieldName, field] of Object.entries(service.properties)) {
-				if (field.$ref != undefined) {
-//					console.log(`[${this.constructor.name}.getDocument(${schemaName})] geting foreignKey for field ${fieldName} :`, field.$ref);
-					const item = this.getPrimaryKeyForeign(service, fieldName, obj);
-//					console.log(`[${this.constructor.name}.getDocument(${schemaName})] result foreignKey for field ${fieldName} :`, item);
-					const schemaRef = this.getSchema(item.table);
-
-					if (!tokenData || tokenData.roles[schemaRef.name] != undefined) {
-						if (item.valid == true && listToGet.find(candidate => candidate.fieldName == fieldName) == undefined) {
-							listToGet.push({"fieldName": fieldName, item});
-						}
-					}
-				}
-			}
-
 			const next = (document, list) => {
 				if (list.length == 0) return;
 				const data = list.shift();
 				const schemaRef = this.getSchema(data.item.table);
 				return this.get(schemaRef.name, data.item.primaryKey).
 				then(objExternal => document[data.fieldName] = objExternal).
-				then(() => next(document, list));
+				finally(() => next(document, list));
 			}
 
+			const listToGet = OpenApi.getPrimaryKeyForeignList(this.openapi, schemaName, obj, this.services);
 			promises.push(next(document, listToGet));
 		}
 		// One To Many
 		{
+			const service = this.getSchema(schemaName, tokenData);
 			const dependents = this.getDependents(schemaName, true);
 
 			for (let item of dependents) {
@@ -350,138 +328,42 @@ class DataStoreManager {
 	}
 
 	getDependencies(schemaName, list) {
-		const processDependency = (schemaName, list) => {
-			if (list.includes(schemaName) == false) {
-				list.unshift(schemaName);
-				this.getDependencies(schemaName, list);
-			}
-		}
-
-		if (list == undefined)
-			list = [];
-
-		const service = this.getSchema(schemaName);
-
-		for (let [fieldName, field] of Object.entries(service.properties)) {
-			if (field.$ref != undefined) {
-				const schemaRef = this.getSchema(field.$ref);
-				processDependency(schemaRef.name, list);
-			}
-		}
-
-		return list;
+		return OpenApi.getDependencies(this.openapi, schemaName, list, this.services);
 	}
 
 	getDependents(schemaName, onlyInDocument) {
-		const services = Object.values(this.services);
-
-		const ret = [];
-
-		for (let service of services) {
-			for (let [fieldName, field] of Object.entries(service.properties)) {
-				if (field.$ref != undefined) {
-					const schemaRef = this.getSchema(field.$ref);
-					let found = false;
-					if (schemaRef.name == schemaName) found = true;
-
-					if (found == true && (onlyInDocument != true || field.document != undefined)) {
-						if (ret.find(item => item.table == service.name && item.field == fieldName) != undefined) {
-							console.error(`[${this.constructor.name}.getDependents] : already added table ${service.name} and field ${fieldName} combination.`);
-						} else {
-							ret.push({"table": service.name, "field": fieldName})
-						}
-					}
-				}
-			}
-		}
-
-		return ret;
+		return OpenApi.getDependents(this.openapi, schemaName, onlyInDocument, this.services);
 	}
 
 	getForeignKeyEntries(serviceName, $ref) {
 		const service = this.getSchema(serviceName);
-		let foreignKeyEntries = [];
-
-		for (let [fieldName, field] of Object.entries(service.properties)) {
-			if (field.$ref != undefined) {
-				if (field.$ref == $ref)
-					foreignKeyEntries.push({fieldName, field});
-			}
-		}
-
-		return foreignKeyEntries;
+    	return OpenApi.getPropertiesWithRef(this.openapi, serviceName, $ref, this.services);
 	}
     // devolve o rufsService apontado por field
     getForeignService(service, fieldName) {
-		const field = service.properties[fieldName];
+    	let field = undefined;
     	// TODO : refatorar consumidores da função getForeignService(field), pois pode haver mais de uma referência
+    	if (service.name == undefined && service.properties != undefined) {
+    		field = service.properties[fieldName];
+    	} else {
+    		field = OpenApi.getProperty(this.openapi, service.name, fieldName, this.services);
+    	}
+
+    	if (field == undefined) {
+    		console.error(`[${this.constructor.name}.getForeignService(${service.name}, ${fieldName})] : fail to find property`);
+    		return undefined;
+    	}
+
         return this.getSchema(field.$ref);
     }
-	// (service, (service.field|foreignTableName)
-	getForeignKeyDescription(service, name) {
-		if (typeof service == "string")
-			service = this.getSchema(service);
-
-		let foreignKey = undefined;
-		const field = service.properties[name];
-
-		if (field != undefined) {
-			if (field.$ref != undefined) {
-				const serviceRef = this.getSchema(field.$ref);
-				const fieldsRef = serviceRef.primaryKeys;
-				let fields = []
-
-				if (fieldsRef.length == 1) {
-					fields = [name];
-				} else if (fieldsRef.length > 1) {
-					for (let fieldRef of fieldsRef) {
-						if (service.properties[fieldRef] != undefined) {
-							fields.push(fieldRef);
-						}
-					}
-
-					if (fields.length == fieldsRef.length) {
-						const pos = fields.indexOf("id");
-
-						if (pos >= 0) fields[pos] = name;
-					}
-				}
-
-				if (fields.length != fieldsRef.length)
-					console.error(`[${this.constructor.name}.getForeignKeyDescription(${service.name, name})] : broken length :`, fields, fieldsRef);
-
-				foreignKey = {fields: fields, tableRef: field.$ref, fieldsRef: fieldsRef};
-			}
-		}
-
-		return foreignKey;
-	}
 	// (service, (service.field|foreignTableName), service.obj) => [{name: constraintName, table: foreignTableName, foreignKey: {}}]
 	getPrimaryKeyForeign(service, name, obj) {
-		const foreignKeyDescription = this.getForeignKeyDescription(service, name);
-
-		if (foreignKeyDescription == undefined)
-			return undefined;
-
-		const key = {};
-		let valid = true;
-
-		if (obj != undefined) {
-			for (let i = 0; i < foreignKeyDescription.fields.length; i++) {
-				const field = foreignKeyDescription.fields[i];
-				const fieldRef = foreignKeyDescription.fieldsRef[i];
-				const value = obj[field];
-				key[fieldRef] = value;
-				if (value == undefined || value == "") valid = false;
-			}
-		}
-
-    	return {"table": foreignKeyDescription.tableRef, "primaryKey": key, "valid": valid};
+		return OpenApi.getPrimaryKeyForeign(this.openapi, service.name || service, name, obj, this.services);
 	}
 	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
 	// foreignKey = {rufsGroupOwner: 2, request: 1}
 	getForeignKey(service, name, obj) {
-		const foreignKeyDescription = this.getForeignKeyDescription(service, name);
+		const foreignKeyDescription = OpenApi.getForeignKeyDescription(this.openapi, service.name, name, this.services);
 
 		if (foreignKeyDescription == undefined)
 			return undefined;

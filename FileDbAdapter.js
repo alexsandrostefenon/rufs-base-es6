@@ -1,4 +1,5 @@
 import fs from "fs";
+import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {DataStore, Filter} from "./webapp/es6/DataStore.js";
 
 const fsPromises = fs.promises;
@@ -31,7 +32,7 @@ class FileDbAdapter {
 				let item = list[i];
 
 				if (item.id == undefined) {
-					item = rufsSchema.copyFields(item);
+					item = OpenApi.copyFields(item, rufsSchema);
 					item.id = ++i;
 				}
 

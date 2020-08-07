@@ -1,8 +1,10 @@
 import jwt from "jsonwebtoken";
 import {Filter} from "./webapp/es6/DataStore.js";
+import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {Response} from "./server-utils.js";
 import {RufsMicroService} from "./RufsMicroService.js";
 import {RequestFilter} from "./RequestFilter.js";
+import fs from "fs";
 
 class AuthenticationMicroService extends RufsMicroService {
 
@@ -26,29 +28,14 @@ class AuthenticationMicroService extends RufsMicroService {
 
         // TODO : código temporário para caber o na tela do celular
         loginResponse.title = user.name;
-        loginResponse.roles = JSON.parse(user.roles);
-		loginResponse.openapi = {"components": {"schemas": {}}};
-		const listDataStore = [];
+        const roles = JSON.parse(user.roles);
 
         if (user.name == "admin") {
-			for (let [schemaName, dataStore] of Object.entries(RequestFilter.dataStoreManager.services)) {
-				listDataStore.push(dataStore);
-			}
+        	loginResponse.openapi = RequestFilter.dataStoreManager.openapi;
         } else {
-			for (let schemaName of Object.keys(loginResponse.roles)) {
-				listDataStore.push(RequestFilter.dataStoreManager.services[schemaName]);
-			}
-        }
-
-        for (const dataStore of listDataStore) {
-			if (dataStore != undefined) {
-				const schema = {};
-				schema.properties = dataStore.properties;
-				schema.foreignKeys = dataStore.foreignKeys;
-				schema.uniqueKeys = dataStore.uniqueKeys;
-				schema.primaryKeys = dataStore.primaryKeys;
-				loginResponse.openapi.components.schemas[dataStore.name] = schema;
-			}
+			loginResponse.openapi = OpenApi.create({});
+			OpenApi.copy(loginResponse.openapi, RequestFilter.dataStoreManager.openapi, roles);
+			fs.writeFileSync(`openapi-${user.name}.json`, JSON.stringify(loginResponse.openapi, null, "\t"));
         }
 		// TODO : remove below header control size
 		// header size limited to 8k
@@ -62,7 +49,7 @@ class AuthenticationMicroService extends RufsMicroService {
         authctoken.dbConnInfo = dbConnInfo;
         authctoken.name = user.name;
         authctoken.rufsGroupOwner = user.rufsGroupOwner;
-        authctoken.roles = loginResponse.roles;
+        authctoken.roles = roles;
 		// TODO : fazer expirar no final do expediente diário
 		loginResponse.authctoken = jwt.sign(authctoken, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
         return loginResponse;
