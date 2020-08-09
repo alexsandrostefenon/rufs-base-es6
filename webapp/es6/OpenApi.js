@@ -239,6 +239,22 @@ class OpenApi {
 						console.error(`[${this.constructor.name}.convertRufsToStandartSchema()] : missing "properties" in field ${fieldName} from schema :`, schema);
 					}
 				}
+			} else if (type == "array") {
+				if (field.items) {
+					property.items = field.items;
+
+					if (field.items.type == "object") {
+						if (field.items.$ref) {
+							property.items.$ref = field.items.$ref;
+						} else {
+							if (field.items.properties != undefined) {
+								property.items = this.convertRufsToStandartSchema(field.items);
+							} else {
+								console.error(`[${this.constructor.name}.convertRufsToStandartSchema()] : missing "properties" in field ${fieldName} from schema :`, schema);
+							}
+						}
+					}
+				}
 			} else {
 				if (field.$ref) property["x-$ref"] = field.$ref;
 				if (field.internalName) property["x-internalName"] = field.internalName;
