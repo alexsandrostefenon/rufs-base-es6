@@ -229,6 +229,10 @@ class OpenApi {
 				property.type = type;
 			}
 
+			if (field.description) property.description = field.description;
+			if (field.default) property.default = field.default;
+			if (field.enum) property.enum = field.enum;
+
 			if (type == "object") {
 				if (field.$ref) {
 					property.$ref = field.$ref;
@@ -241,10 +245,9 @@ class OpenApi {
 				}
 			} else if (type == "array") {
 				if (field.items) {
-					property.items = field.items;
-
 					if (field.items.type == "object") {
 						if (field.items.$ref) {
+							property.items = {};
 							property.items.$ref = field.items.$ref;
 						} else {
 							if (field.items.properties != undefined) {
@@ -253,10 +256,18 @@ class OpenApi {
 								console.error(`[${this.constructor.name}.convertRufsToStandartSchema()] : missing "properties" in field ${fieldName} from schema :`, schema);
 							}
 						}
+					} else {
+						property.items = field.items;
 					}
 				}
+
+				if (field.hiden) property["x-hiden"] = field.hiden;
+				if (field.internalName) property["x-internalName"] = field.internalName;
 			} else {
+				if (field.example) property.example = field.example;
+				if (field.required) property["x-required"] = field.required;
 				if (field.$ref) property["x-$ref"] = field.$ref;
+				if (field.hiden) property["x-hiden"] = field.hiden;
 				if (field.internalName) property["x-internalName"] = field.internalName;
 				if (field.identityGeneration) property["x-identityGeneration"] = field.identityGeneration;
 				if (field.notNull) property["x-notNull"] = field.notNull;
@@ -266,19 +277,53 @@ class OpenApi {
 				if (field.maxLength) property.maxLength = field.maxLength;
 				if (field.pattern) property.pattern = field.pattern;
 				if (field.format) property.format = field.format;
-				if (field.example) property.example = field.example;
 			}
 
 			if (field.required == true && standartSchema.required.indexOf(fieldName) < 0)
 				standartSchema.required.push(fieldName);
 
-			if (field.default) property.default = field.default;
-			if (field.description) property.description = field.description;
-			if (field.enum) property.enum = field.enum;
 			standartSchema.properties[fieldName] = property;
 		}
 
 		return standartSchema;
+	}
+
+	static convertRufsToStandart(openapi) {
+		const standartSchemas = {};
+
+		for (let [name, schema] of Object.entries(openapi.components.schemas)) {
+			standartSchemas[name] = this.convertRufsToStandartSchema(schema);
+		}
+
+		const standartOpenApi = {};
+		standartOpenApi.openapi = openapi.openapi;
+		standartOpenApi.info = openapi.info;
+		standartOpenApi.servers = openapi.servers;
+		standartOpenApi.paths = openapi.paths;
+		standartOpenApi.components = {};
+		standartOpenApi.components.schemas = standartSchemas;
+		standartOpenApi.components.parameters = openapi.components.parameters;
+		standartOpenApi.components.requestBodies = {};
+
+		for (let [name, requestBodyObject] of Object.entries(openapi.components.requestBodies)) {
+			const standartRequestBodyObject = standartOpenApi.components.requestBodies[name] = {"required": true, "content": {}};
+
+			for (let [mediaTypeName, mediaTypeObject] of Object.entries(requestBodyObject.content)) {
+				standartRequestBodyObject.content[mediaTypeName] = {};
+
+				if (mediaTypeObject.schema.properties != undefined) {
+					standartRequestBodyObject.content[mediaTypeName].schema = this.convertRufsToStandartSchema(mediaTypeObject.schema);
+				} else {
+					standartRequestBodyObject.content[mediaTypeName].schema = mediaTypeObject.schema;
+				}
+			}
+		}
+
+		standartOpenApi.components.responses = openapi.components.responses;
+		standartOpenApi.components.securitySchemes = openapi.components.securitySchemes;
+		standartOpenApi.security = openapi.security;
+		standartOpenApi.tags = openapi.tags;
+		return standartOpenApi;
 	}
 
 	static convertStandartToRufs(openapi) {
@@ -299,9 +344,10 @@ class OpenApi {
 			}
 
 			if (schema.required == undefined) schema.required = [];
-			const skypes = ["x-$ref", "x-internalName", "x-identityGeneration", "x-notNull", "x-updatable", "x-scale", "x-precision"];
+			const skypes = ["x-$ref", "x-hiden", "x-internalName", "x-identityGeneration", "x-notNull", "x-updatable", "x-scale", "x-precision"];
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
+				delete field["x-required"];
 				if (schema.required.indexOf(fieldName) >= 0) field.required = true;
 
 				if (field.format == "date-time" || field.format == "date") {
@@ -313,6 +359,12 @@ class OpenApi {
 						field[skypeName.substring(2)] = field[skypeName];
 						delete field[skypeName];
 					}
+				}
+
+				if (field.type == "object" && field.properties != undefined) {
+					convertSchema(field);
+				} else if (field.type == "array" && field.items && field.items.type == "object" && field.items.properties != undefined) {
+					convertSchema(field.items);
 				}
 			}
 		}
@@ -328,40 +380,97 @@ class OpenApi {
 		return openapi;
 	}
 
+	static copyValue(field, value) {
+		let ret;
+		const type = field["type"];
+
+		if (type == undefined || type == "string") {
+			ret = value;
+		} else if (type == "number" || type == "integer") {
+			if (typeof value == "string") {
+				ret = new Number(value).valueOf();
+			} else {
+				ret = value;
+			}
+		} else if (type == "boolean") {
+			if (value == true)
+				ret = true;
+			else if (value == false)
+				ret = false;
+			else
+				ret = (value == "true");
+		} else if (type == "date" || type == "date-time") {
+			ret = new Date(value);
+		} else {
+			ret = value;
+		}
+
+		return ret;
+	}
+
 	static copyToInternalName(schema, dataIn) {
+		const copy = (property, valueIn) => {
+			if (property.type == "object" && property.properties != undefined) {
+				return this.copyToInternalName(property, valueIn);
+			} else if (property.type == "array" && property.items != undefined && property.items.properties != undefined) {
+				const valueOut = [];
+				for (const val of valueIn) valueOut.push(this.copyToInternalName(property.items, val));
+				return valueOut;
+			} else {
+				return this.copyValue(property, valueIn);
+			}
+		}
+
 		const dataOut = {};
 
 		for (let [name, property] of Object.entries(schema.properties)) {
-			if (property.internalName != undefined)
-				dataOut[property.internalName] = dataIn[name];
-			else
-				dataOut[name] = dataIn[name];
+			if (property.internalName != undefined) {
+				dataOut[property.internalName] = copy(property, dataIn[name]);
+			} else {
+				dataOut[name] = copy(property, dataIn[name]);
+			}
 		}
 
 		return dataOut;
 	}
 
 	static copyFromInternalName(schema, dataIn, caseInsensitive) {
+		const copy = (property, valueIn) => {
+			if (property.type == "object" && property.properties != undefined) {
+				return this.copyFromInternalName(property, valueIn, caseInsensitive);
+			} else if (property.type == "array" && property.items != undefined && property.items.properties != undefined && Array.isArray(valueIn)) {
+				const valueOut = [];
+				for (const val of valueIn) valueOut.push(this.copyFromInternalName(property.items, val, caseInsensitive));
+				return valueOut;
+			} else {
+				return this.copyValue(property, valueIn);
+			}
+		}
+
 		const dataOut = {};
-		console.log(`[${this.constructor.name}.copyToInternalName] dataIn :`, dataIn);
+		console.log(`[${this.constructor.name}.copyFromInternalName] dataIn :`, dataIn);
 
 		for (let [name, property] of Object.entries(schema.properties)) {
 			if (property.internalName != undefined) {
 				if (caseInsensitive == true) {
-					for (let fieldName in dataIn) if (fieldName.toLowerCase() == property.internalName.toLowerCase()) dataOut[name] = dataIn[fieldName];
+					for (let fieldName in dataIn) {
+						if (fieldName.toLowerCase() == property.internalName.toLowerCase()) {
+							dataOut[name] = copy(property, dataIn[fieldName]);
+						}
+					}
 				} else {
-					dataOut[name] = dataIn[property.internalName];
+					dataOut[name] = copy(property, dataIn[property.internalName]);
 				}
 			} else {
 				if (caseInsensitive == true) {
-					for (let fieldName in dataIn) if (fieldName.toLowerCase() == name.toLowerCase()) dataOut[name] = dataIn[fieldName];
+					for (let fieldName in dataIn) if (fieldName.toLowerCase() == name.toLowerCase()) dataOut[name] = copy(property, dataIn[fieldName]);
 				} else {
-					dataOut[name] = dataIn[name];
+					dataOut[name] = copy(property, dataIn[name]);
 				}
 			}
 		}
 
-		console.log(`[${this.constructor.name}.copyToInternalName] dataOut :`, dataOut);
+		console.log(`[${this.constructor.name}.copyFromInternalName] dataOut :`, dataOut);
 		return dataOut;
 	}
 	// public
@@ -370,31 +479,7 @@ class OpenApi {
 
 		for (let [fieldName, field] of Object.entries(schema.properties)) {
 			const value = dataIn[fieldName];
-
-			if (value != undefined) {
-				const type = field["type"];
-				
-				if (type == undefined || type == "string") {
-					ret[fieldName] = value;
-				} else if (type == "number" || type == "integer") {
-					if (typeof value == "string") {
-						ret[fieldName] = new Number(value).valueOf();
-					} else {
-						ret[fieldName] = value;
-					}
-				} else if (type == "boolean") {
-					if (value == true)
-						ret[fieldName] = true;
-					else if (value == false)
-						ret[fieldName] = false;
-					else
-						ret[fieldName] = (value == "true");
-				} else if (type == "date" || type == "date-time") {
-					ret[fieldName] = new Date(value);
-				} else {
-					ret[fieldName] = value;
-				}
-			}
+			if (value != undefined) ret[fieldName] = this.copyValue(field, value);
 		}
 
 		return ret;

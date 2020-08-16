@@ -4,6 +4,7 @@ import {RequestFilter} from "./RequestFilter.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {OpenApi} from "./webapp/es6/OpenApi.js";
+import {HttpRestRequest} from "./webapp/es6/ServerConnection.js";
 import {FileDbAdapter} from "./FileDbAdapter.js";
 import {Response} from "./server-utils.js";
 
@@ -387,7 +388,7 @@ RufsMicroService.defaultGroupOwnerAdmin = {
 
 RufsMicroService.defaultUserAdmin = {
 //	id: 1, 
-	name: "admin", rufsGroupOwner: 1, password: "admin", path: "rufs_user/search",
+	name: "admin", rufsGroupOwner: 1, password: HttpRestRequest.MD5("admin"), path: "rufs_user/search",
 	roles: '{"rufsGroupOwner":{"post":true,"put":true,"delete":true},"rufsUser":{"post":true,"put":true,"delete":true},"rufsGroup":{"post":true,"put":true,"delete":true},"rufsGroupUser":{"post":true,"put":true,"delete":true}}',
 	routes: '[{"path": "/app/rufs_service/:action", "controller": "RufsServiceController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
 };

@@ -4,7 +4,6 @@ import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {Response} from "./server-utils.js";
 import {RufsMicroService} from "./RufsMicroService.js";
 import {RequestFilter} from "./RequestFilter.js";
-import fs from "fs";
 
 class AuthenticationMicroService extends RufsMicroService {
 
@@ -35,7 +34,7 @@ class AuthenticationMicroService extends RufsMicroService {
         } else {
 			loginResponse.openapi = OpenApi.create({});
 			OpenApi.copy(loginResponse.openapi, RequestFilter.dataStoreManager.openapi, roles);
-			fs.writeFileSync(`openapi-${user.name}.json`, JSON.stringify(loginResponse.openapi, null, "\t"));
+			this.storeOpenApi(loginResponse.openapi, `openapi-${user.name}.json`);
         }
 		// TODO : remove below header control size
 		// header size limited to 8k
@@ -48,6 +47,7 @@ class AuthenticationMicroService extends RufsMicroService {
         }
         authctoken.dbConnInfo = dbConnInfo;
         authctoken.name = user.name;
+        authctoken.password = user.password;
         authctoken.rufsGroupOwner = user.rufsGroupOwner;
         authctoken.roles = roles;
 		// TODO : fazer expirar no final do expediente diário

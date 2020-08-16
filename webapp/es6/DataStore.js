@@ -300,6 +300,7 @@ class DataStoreManager {
 				const schemaRef = this.getSchema(data.item.table);
 				return this.get(schemaRef.name, data.item.primaryKey).
 				then(objExternal => document[data.fieldName] = objExternal).
+				catch(err => console.error(err)).
 				finally(() => next(document, list));
 			}
 
@@ -421,7 +422,7 @@ class DataStoreItem extends DataStore {
 		return super.clear().then(() => {
 			this.instance = {};
 			this.instanceFlags = {};
-			return this.setValues(); // set default values
+			return this.setValues({}, true); // set default values
 		});
 	}
 
@@ -451,17 +452,13 @@ class DataStoreItem extends DataStore {
 				if (pos < 0) {
 					console.error(`DataStoreItem.setValue(${fieldName}) : don\'t found\nvalue:`, value, `\nstr:\n`, field.externalReferences, `\noptions:\n`, field.filterResultsStr);
 				}
-			} else {
-				if (field.type == "date-time" || field.type == "date") {
-					value = new Date(value);
-				}
 			}
 		}
 
-		this.instance[fieldName] = value;
+		this.instance[fieldName] = OpenApi.copyValue(field, value);
 	}
 
-	setValues(obj, dataStoreManager) {
+	setValues(obj, enableDefault, dataStoreManager) {
 		let getDefaultValue = field => {
 			let value;
 
@@ -487,10 +484,12 @@ class DataStoreItem extends DataStore {
 			obj = {};
 		}
 
-		for (let [fieldName, field] of Object.entries(this.properties)) {
-			if (obj[fieldName] == undefined && field.default != undefined) {
-				const value = getDefaultValue(field);
-				if (value != undefined) obj[fieldName] = value;
+		if (enableDefault) {
+			for (let [fieldName, field] of Object.entries(this.properties)) {
+				if (obj[fieldName] == undefined && field.default != undefined) {
+					const value = getDefaultValue(field);
+					if (value != undefined) obj[fieldName] = value;
+				}
 			}
 		}
 

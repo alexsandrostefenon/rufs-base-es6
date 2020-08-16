@@ -44,6 +44,8 @@ class CaseConvert {
 			if (nextIsUpper == true) {
 				ch = ch.toUpperCase();
 				nextIsUpper = false;
+			} else {
+//				ch = ch.toLowerCase();
 			}
 
 			if (ch == '_') {

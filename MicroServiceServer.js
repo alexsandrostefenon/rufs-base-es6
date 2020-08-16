@@ -247,27 +247,12 @@ class MicroServiceServer {
 		then(openapi => OpenApi.convertStandartToRufs(openapi));
 	}
 
-	storeOpenApi(openapi) {
-		const standartSchemas = {};
-
-		for (let [name, schema] of Object.entries(openapi.components.schemas)) {
-			standartSchemas[name] = OpenApi.convertRufsToStandartSchema(schema);
-		}
-
-		const standartOpenApi = {};
-		standartOpenApi.openapi = openapi.openapi;
-		standartOpenApi.info = openapi.info;
-		standartOpenApi.servers = openapi.servers;
-		standartOpenApi.paths = openapi.paths;
-		standartOpenApi.components = {};
-		standartOpenApi.components.schemas = standartSchemas;
-		standartOpenApi.components.responses = openapi.components.responses;
-		standartOpenApi.components.parameters = openapi.components.parameters;
-		standartOpenApi.components.requestBodies = openapi.components.requestBodies;
-		standartOpenApi.components.securitySchemes = openapi.components.securitySchemes;
-		standartOpenApi.security = openapi.security;
-		standartOpenApi.tags = openapi.tags;
-		return fsPromises.writeFile(`openapi-${this.config.appName}.json`, JSON.stringify(standartOpenApi, null, "\t")).then(() => openapi);
+	storeOpenApi(openapi, fileName) {
+		if (fileName == undefined) fileName = `openapi-${this.config.appName}.json`;
+		return fsPromises.writeFile("rufs-" + fileName, JSON.stringify(openapi, null, "\t")).
+		then(() => OpenApi.convertRufsToStandart(openapi)).
+		then(standartOpenApi => fsPromises.writeFile(fileName, JSON.stringify(standartOpenApi, null, "\t"))).
+		then(() => openapi);
 	}
 
 	static checkStandalone() {

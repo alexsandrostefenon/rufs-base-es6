@@ -220,7 +220,7 @@ class RequestFilter {
 			} else if (req.method.toLowerCase() == "get" && uriPath == "query") {
 				uriPath = "get";
 			}
-
+			// TODO : usar o defaultAccess apenas em UserController
 			const defaultAccess = {get: true, post: true, patch: true, put: false, delete: false};
 
 			if (serviceAuth[uriPath] != undefined) {
