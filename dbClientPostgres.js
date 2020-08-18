@@ -610,6 +610,7 @@ class DbClientPostgres {
 						let field = {}
 						field.unique = undefined;
 						field.type = this.rufsTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
+						if (field.type == "date-time") field.format = "date-time";
 						field.notNull = rec.isNullable != "YES" && rec.isNullable != 1; // true,false
 						field.updatable = rec.isUpdatable == "YES" || rec.isUpdatable == 1; // true,false
 						field.scale = rec.numericScale; // > 0 // 3,2,1

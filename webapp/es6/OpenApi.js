@@ -102,6 +102,7 @@ class OpenApi {
 			let jsonBuilderValue = {};
 			// registra conflitos dos valores antigos com os valores detectados do banco de dados
 			jsonBuilderValue["type"] = field.type;
+			jsonBuilderValue["format"] = field.format;
 
 			if (field.updatable == false) {
 				jsonBuilderValue["updatable"] = false;
