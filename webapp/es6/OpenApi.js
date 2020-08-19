@@ -69,6 +69,8 @@ class OpenApi {
 			dest.components.parameters[schemaName] = source.components.parameters[schemaName];
 			dest.components.requestBodies[schemaName] = source.components.requestBodies[schemaName];
 		}
+
+		if (dest.components.responses.Error == undefined) dest.components.responses.Error = source.components.responses.Error;
 	}
 
 	static mergeSchemas(schemaName, schemaNew, schemaOld) {

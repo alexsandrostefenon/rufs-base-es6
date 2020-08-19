@@ -23,9 +23,12 @@ class MicroServiceServer {
 		let base = "--" + name;
 		let baseAndValue = base + "=";
 
-		for (let arg of process.argv) {
+		for (let i = 0; i < process.argv.length; i++) {
+			const arg = process.argv[i];
+
 			if (arg == base) {
-				value = "";
+				value = [];
+				for (let j = i+1; j < process.argv.length && process.argv[j].startsWith("-") == false; j++) value.push(process.argv[j]);
 				break;
 			}
 
