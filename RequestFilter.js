@@ -189,28 +189,27 @@ class RequestFilter {
 			Response.ok(results)
 		);
 	}
-
-	static getDbConn(dbConnInfo, limitQuery) {
-		let dbClient = RequestFilter.dbConnMap.get(dbConnInfo);
-
-		if (dbClient != undefined) Promise.resolve(dbClient);
-
-		dbClient = new DbClientPostgres({"connectionString": dbConnInfo, "limitQuery": limitQuery});
-
-		return dbClient.connect().
-		then(() => {
-			RequestFilter.dbConnMap.set(dbConnInfo, dbClient);
-			console.log(`[RequestFilter.authenticateByUserAndPassword] : added db connection to ${dbConnInfo}`);
-			return dbConnInfo;
-		}).
-		catch(err => {
-			console.err(`[RequestFilter.authenticateByUserAndPassword] : fail db connection to ${dbConnInfo} : `, err);
-			return undefined;
-		});
-	}
 	// public
 	static checkAuthorization(req, serviceName, uriPath) {
+    	const getRolesUnMask = roles => {
+    		const ret = {};
+
+			for (let [schemaName, mask] of Object.entries(roles)) {
+				let role = {};
+				role["get"]    = (mask & (1 << 0)) != 0;
+				role["post"]   = (mask & (1 << 1)) != 0;
+				role["patch"]  = (mask & (1 << 2)) != 0;
+				role["put"]    = (mask & (1 << 3)) != 0;
+				role["delete"] = (mask & (1 << 4)) != 0;
+				ret[schemaName] = role;
+			}
+
+    		return ret;
+    	}
+
 		req.tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
+		req.tokenPayload.roles = getRolesUnMask(req.tokenPayload.roles);
+
 		let access = false;
 		const serviceAuth = req.tokenPayload.roles[serviceName];
 		// verfica a permissao de acesso
@@ -220,13 +219,9 @@ class RequestFilter {
 			} else if (req.method.toLowerCase() == "get" && uriPath == "query") {
 				uriPath = "get";
 			}
-			// TODO : usar o defaultAccess apenas em UserController
-			const defaultAccess = {get: true, post: true, patch: true, put: false, delete: false};
 
 			if (serviceAuth[uriPath] != undefined) {
 				access = serviceAuth[uriPath];
-			} else {
-				access = defaultAccess[uriPath];
 			}
 		}
 
@@ -254,9 +249,6 @@ class RequestFilter {
 	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath, useDocument) {
 		if (microService.fileDbAdapter.fileTables.has(serviceName) == true) {
 			entityManager = microService.fileDbAdapter;
-		} else if (RequestFilter.dbConnMap.get(req.tokenPayload.dbConnInfo) != undefined) {
-			entityManager = RequestFilter.dbConnMap.get(req.tokenPayload.dbConnInfo);
-			console.log(`[RequestFilter.processRequest] : using connection ${req.tokenPayload.dbConnInfo}`);
 		}
 
 		const queryParams = req.query;
@@ -344,7 +336,5 @@ class RequestFilter {
 	}
 
 }
-
-RequestFilter.dbConnMap = new Map();
 
 export {RequestFilter}

@@ -224,7 +224,8 @@ class SqlAdapterPostgres {
 
 	constructor(config) {
 		config.max = 10; // max number of clients in the pool
-		config.idleTimeoutMillis = 30000; // how long a client is allowed to remain idle before being closed
+		config.idleTimeoutMillis = 86400; // how long a client is allowed to remain idle before being closed
+		console.log(`[${this.constructor.name}.constructor(${JSON.stringify(config)})]`);
 		this.client = new pg.Client(config);
 		this.enableParams = true;
 		this.sqlInfoTables = 
@@ -242,7 +243,14 @@ class SqlAdapterPostgres {
 	}
 
 	connect() {
-		return this.client.connect();
+		return this.client.connect().then(res => {
+			this.client.on('error', e => {
+				console.error(`[${this.constructor.name}.connect()] :`, e);
+				// TODO : verificar se deve reconectar
+				// this.connect();
+			});
+			return res;
+		});
 	}
 
 	end() {
@@ -257,9 +265,10 @@ class SqlAdapterPostgres {
 
 class DbClientPostgres {
 
-	constructor(dbConfig) {
+	constructor(dbConfig, dbMissingPrimaryKeys) {
 		this.limitQuery = 10 * 1000;
 		this.dbConfig = {};
+		this.dbMissingPrimaryKeys = dbMissingPrimaryKeys || {};
 
 		if (dbConfig != undefined) {
 			if (dbConfig.host != undefined) this.dbConfig.host = dbConfig.host;
@@ -568,9 +577,16 @@ class DbClientPostgres {
 								}
 							}
 
+							if (this.dbMissingPrimaryKeys != undefined && Array.isArray(this.dbMissingPrimaryKeys[schemaName])) {
+								for (const columnName of this.dbMissingPrimaryKeys[schemaName]) {
+									schema.primaryKeys.push(columnName);
+									if (schema.required.indexOf(columnName) < 0) schema.required.push(columnName);
+								}
+							}
+
 							if (schema.required.length == 0) {
 								console.error(`[${this.constructor.name}.getOpenApi().processColumns()] missing required fields of table ${schemaName}`);
-								delete openapi.components.schemas[schemaName];
+//								delete openapi.components.schemas[schemaName];
 							}
 						}
 

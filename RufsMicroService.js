@@ -154,12 +154,13 @@ class RufsMicroService extends MicroServiceServer {
 		super(config);
 		this.config.checkRufsTables = checkRufsTables || false;
 		this.config.migrationPath = config.migrationPath || MicroServiceServer.getArg("migration-path", `./rufs-${config.appName}-es6/sql`);
-		this.entityManager = new DbClientPostgres(this.config.dbConfig);
+		this.entityManager = new DbClientPostgres(this.config.dbConfig, this.config.dbMissingPrimaryKeys);
 	}
 
 	onRequest(req, res, next, resource, action) {
 		let access = RequestFilter.checkAuthorization(req, resource, action);
 		if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+		if (resource == "rufsService" && req.method == "GET" && action == "query") return Promise.resolve(Response.ok(OpenApi.getList(this.openapi/*, req.tokenPayload.roles*/)));
 		return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
 	}
 
@@ -176,6 +177,8 @@ class RufsMicroService extends MicroServiceServer {
 
 		return this.loadOpenApi().
 		then(openapi => this.fileDbAdapter = new FileDbAdapter(openapi)).
+		then(() => loadTable("rufsService", [])).
+//		then(rows => this.listRufsService= rows).
 		then(() => loadTable("rufsGroup", [])).
 		then(rows => this.listGroup= rows).
 		then(() => loadTable("rufsGroupUser", [])).
@@ -375,6 +378,18 @@ RufsMicroService.openApiRufs = {
 					rufsGroup: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsGroup"}
 				},
 				"primaryKeys": ["rufsUser", "rufsGroup"],
+				"uniqueKeys": {}
+			},
+			rufsService: {
+				properties: {
+					operationId: {primaryKey: true},
+					path: {},
+					method: {},
+					parameter: {maxLength: 10240},
+					requestBody: {maxLength: 10240},
+					response: {maxLength: 10240}
+				},
+				"primaryKeys": ["operationId"],
 				"uniqueKeys": {}
 			}
 		}

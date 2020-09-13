@@ -11,7 +11,23 @@ class AuthenticationMicroService extends RufsMicroService {
 		super(config, "base");
 	}
 	// Load rufsGroupOwner, Services and Groups
-    load(user, dbConnInfo) {
+    load(user) {
+    	const getRolesMask = roles => {
+    		const ret = {};
+
+			for (let [schemaName, role] of Object.entries(roles)) {
+				let mask = 0;
+				if (role["get"] == undefined) mask |= 1 << 0;
+				if (role["get"] == true)      mask |= 1 << 0;
+				if (role["post"] == true)     mask |= 1 << 1;
+				if (role["patch"] == true)    mask |= 1 << 2;
+				if (role["put"] == true)      mask |= 1 << 3;
+				if (role["delete"] == true)   mask |= 1 << 4;
+				ret[schemaName] = mask;
+			}
+
+    		return ret;
+    	}
     	// TODO : adjusts user.menu and user.routes to starts with default "rufs" in addr
 		let loginResponse = {};
 		loginResponse.rufsGroupOwner = user.rufsGroupOwner;
@@ -38,21 +54,20 @@ class AuthenticationMicroService extends RufsMicroService {
         }
 		// TODO : remove below header control size
 		// header size limited to 8k
-        const authctoken = {};
-        authctoken.groups = [];
+        const tokenPayload = {};
+        tokenPayload.groups = [];
         // Add Groups
         {
 			const userGroups = Filter.find(this.listGroupUser, {"rufsUser": user.id});
-			for (let userGroup of userGroups) authctoken.groups.push(userGroup.rufsGroup);
+			for (let userGroup of userGroups) tokenPayload.groups.push(userGroup.rufsGroup);
         }
-        authctoken.dbConnInfo = dbConnInfo;
-        authctoken.name = user.name;
-        authctoken.password = user.password;
-        authctoken.rufsGroupOwner = user.rufsGroupOwner;
-        authctoken.roles = roles;
+        tokenPayload.name = user.name;
+        tokenPayload.password = user.password;
+        tokenPayload.rufsGroupOwner = user.rufsGroupOwner;
+        tokenPayload.roles = getRolesMask(roles);
 		// TODO : fazer expirar no final do expediente diário
-		loginResponse.authctoken = jwt.sign(authctoken, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
-        return loginResponse;
+		loginResponse.tokenPayload = jwt.sign(tokenPayload, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
+        return Promise.resolve(loginResponse);
     }
 
 	processLogin(req) {
@@ -66,8 +81,7 @@ class AuthenticationMicroService extends RufsMicroService {
 				return Promise.resolve(Response.unauthorized("Don't match user and password."));
 
 			user.ip = req.ip;
-			return RequestFilter.getDbConn(req.body.dbUri, this.entityManager.limitQuery).
-			then(dbConnInfo => this.load(user, dbConnInfo)).
+			return this.load(user).
 			then(loginResponse => Response.ok(loginResponse));
 		});
     }

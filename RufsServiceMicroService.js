@@ -1,6 +1,7 @@
+import {OpenApi} from "./webapp/es6/OpenApi.js";
+import {Response} from "./server-utils.js";
 import {RufsMicroService} from "./RufsMicroService.js";
 import {RequestFilter} from "./RequestFilter.js";
-import {OpenApi} from "./webapp/es6/OpenApi.js";
 
 class RufsServiceMicroService extends RufsMicroService {
 
@@ -37,7 +38,7 @@ class RufsServiceMicroService extends RufsMicroService {
 			return Response.internalServerError(err.message);
 		});
 	}
-		
+
 	remove(req, res, next, resource, action) {
 		return this.entityManager.findOne("rufsService", {name: req.query.name}).
 		then(schemaOld => {
@@ -53,30 +54,31 @@ class RufsServiceMicroService extends RufsMicroService {
 		});
 	}
 
-	onRequest(req, res, next, resource, action) {
-		return Promise.resolve().
-		then(() => {
-			let access = RequestFilter.checkAuthorization(req, resource, action);
-			let promise;
+	processLogin(req) {
+		let access = RequestFilter.checkAuthorization(req, resource, action);
+		let promise;
 
-			if (access == true) {
-				if (req.method == "PUT") {
-					promise = this.update(req, res, next, resource, action);
-				} else if (req.method == "DELETE") {
-					promise = this.remove(req, res, next, resource, action);
-				} else {
-					promise = super.onRequest(req, res, next, resource, action);
-				}
+		if (access == true) {
+			if (req.method == "PUT") {
+				promise = this.update(req, res, next, resource, action);
+			} else if (req.method == "DELETE") {
+				promise = this.remove(req, res, next, resource, action);
 			} else {
-				promise = Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+				promise = super.onRequest(req, res, next, resource, action);
 			}
+		} else {
+			promise = Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+		}
 
-			return promise;
-		}).
-		catch(err => {
-			console.error(err);
-			return Response.unauthorized(err.msg);
-		});
+		return promise;
+    }
+	// return a promise
+	onRequest(req, res, next, resource, action) {
+		if (resource == "login") {
+			return this.processLogin(req);
+		} else {
+			return super.onRequest(req, res, next, resource, action);
+		}
 	}
 
 }

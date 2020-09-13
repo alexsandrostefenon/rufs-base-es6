@@ -291,21 +291,21 @@ class ServerConnection extends DataStoreManager {
 		};
 	}
     // public
-    login(server, path, user, password, RufsServiceClass, callbackPartial, dbUri) {
+    login(server, path, user, password, RufsServiceClass, callbackPartial) {
 		this.url = server;
 		if (path != null && path.startsWith("/")) path = path.substring(1);
 		if (path != null && path.endsWith("/")) path = path.substring(0, path.length-1);
 		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
-    	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password, "dbUri":dbUri}).
+    	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password}).
     	then(loginResponse => {
     		this.title = loginResponse.title;
 			this.rufsGroupOwner = loginResponse.rufsGroupOwner;
 			this.routes = loginResponse.routes;
 			this.path = loginResponse.path;
 			this.userMenu = loginResponse.menu;
-    		this.httpRest.setToken(loginResponse.authctoken);
+    		this.httpRest.setToken(loginResponse.tokenPayload);
     		const schemas = [];
             // depois carrega os serviços autorizados
 			// TODO : trocar openapi.components.schemas por openapi.paths

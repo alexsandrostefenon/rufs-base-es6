@@ -48,12 +48,14 @@ class MicroServiceServer {
 		if (preferenceConfig == undefined) preferenceConfig = {};
 		if (preferenceConfig.dbConfig == undefined) preferenceConfig.dbConfig = {};
 
-		config.dbConfig.host = preferenceConfig.dbConfig.host || MicroServiceServer.getArg("db_host");//localhost// Server hosting the postgres database
-		config.dbConfig.port = preferenceConfig.dbConfig.port || MicroServiceServer.getArg("db_port");//5432//env var: PGPORT
-		config.dbConfig.database = preferenceConfig.dbConfig.database || MicroServiceServer.getArg("db_name");//env var: PGDATABASE
-		config.dbConfig.user = preferenceConfig.dbConfig.user || MicroServiceServer.getArg("db_user");//"development", //env var: PGUSER
-		config.dbConfig.password = preferenceConfig.dbConfig.password || MicroServiceServer.getArg("db_password");//"123456", //env var: PGPASSWORD
+		config.dbConfig.host = preferenceConfig.dbConfig.host || MicroServiceServer.getArg("db-host");//localhost// Server hosting the postgres database
+		config.dbConfig.port = preferenceConfig.dbConfig.port || MicroServiceServer.getArg("db-port");//5432//env var: PGPORT
+		config.dbConfig.database = preferenceConfig.dbConfig.database || MicroServiceServer.getArg("db-name");//env var: PGDATABASE
+		config.dbConfig.user = preferenceConfig.dbConfig.user || MicroServiceServer.getArg("db-user");//"development", //env var: PGUSER
+		config.dbConfig.password = preferenceConfig.dbConfig.password || MicroServiceServer.getArg("db-password");//"123456", //env var: PGPASSWORD
 		config.dbConfig.limitQuery = preferenceConfig.dbConfig.limitQuery || MicroServiceServer.getArg("db-limit-query");
+
+		config.dbMissingPrimaryKeys = preferenceConfig.dbMissingPrimaryKeys || MicroServiceServer.getArg("db-missing-primary-keys");
 
 		config.appName = preferenceConfig.appName || MicroServiceServer.getArg("name", "");
 		config.port = preferenceConfig.port || MicroServiceServer.getArg("port", "9080");

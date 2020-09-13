@@ -51,7 +51,13 @@ class OpenApi {
 		dest.tags = source.tags;
 
 		for (let [schemaName, role] of Object.entries(roles)) {
+			dest.components.schemas[schemaName] = source.components.schemas[schemaName];
+			dest.components.responses[schemaName] = source.components.responses[schemaName];
+			dest.components.parameters[schemaName] = source.components.parameters[schemaName];
+			dest.components.requestBodies[schemaName] = source.components.requestBodies[schemaName];
+
 			const pathIn = source.paths["/"+schemaName];
+			if (pathIn == undefined) continue;
 			const pathOut = dest.paths["/"+schemaName] = {};
 			// TODO : alterar UserController para não usar valores default
 			const defaultAccess = {get: true, post: false, patch: false, put: false, delete: false};
@@ -63,11 +69,6 @@ class OpenApi {
 			for (let [method, value] of Object.entries(role)) {
 				if (value == true) pathOut[method] = pathIn[method];
 			}
-
-			dest.components.schemas[schemaName] = source.components.schemas[schemaName];
-			dest.components.responses[schemaName] = source.components.responses[schemaName];
-			dest.components.parameters[schemaName] = source.components.parameters[schemaName];
-			dest.components.requestBodies[schemaName] = source.components.requestBodies[schemaName];
 		}
 
 		if (dest.components.responses.Error == undefined) dest.components.responses.Error = source.components.responses.Error;
@@ -487,6 +488,34 @@ class OpenApi {
 
 		return ret;
 	}
+
+	static getList(openapi, roles) {
+		if (openapi == undefined || openapi.components == undefined || openapi.components.schemas == undefined) return [];
+		const list = [];
+		const methods = ["get", "put", "post", "delete", "patch"];
+
+		for (const [schemaName, schema] of Object.entries(openapi.components.schemas)) {
+			const path = "/" + schemaName;
+			const pathItemObject = openapi.paths[path];
+			if (pathItemObject == undefined) continue;
+
+			for (const method of methods) {
+				const operationObject = pathItemObject[method];
+				if (operationObject == undefined) continue;
+				const item = {path, method};
+				item.operationId = operationObject.operationId || (path + "/" + method);
+				const parameterSchema = OpenApi.getSchemaFromParameters(openapi, schemaName);
+				const requestBodySchema = OpenApi.getSchemaFromRequestBodies(openapi, schemaName);
+				const responseSchema = OpenApi.getSchemaFromSchemas(openapi, schemaName);
+				if (parameterSchema != undefined) item.parameter = JSON.stringify(parameterSchema.properties);
+				if (requestBodySchema != undefined) item.requestBody = JSON.stringify(requestBodySchema.properties);
+				if (responseSchema != undefined) item.response = JSON.stringify(responseSchema.properties);
+				list.push(item);
+			}
+		}
+
+		return list;
+	}
 //{"methods": ["get", "post"], "schemas": responseSchemas, parameterSchemas, requestSchemas}
 	static fillOpenApi(openapi, options) {
 		if (openapi.paths == undefined) openapi.paths = {};
@@ -567,12 +596,17 @@ class OpenApi {
 	}
 
 	static getSchemaName($ref) {
-		if ($ref.startsWith("#") == false) return $ref;
 		let ret = $ref;
-		const pos = $ref.lastIndexOf("/");
+		let pos = ret.lastIndexOf("/");
 
 		if (pos >= 0) {
-			ret = $ref.substring(pos+1);
+			ret = ret.substring(pos+1);
+		}
+
+		pos = ret.indexOf("?");
+
+		if (pos >= 0) {
+			ret = ret.substring(0, pos);
 		}
 
 		return ret;
@@ -600,6 +634,16 @@ class OpenApi {
 		}
 
 		return schema;
+	}
+
+	static getSchemaFromParameters(openapi, schemaName) {
+		schemaName = this.getSchemaName(schemaName);
+		const parameterObject = openapi.components.parameters[schemaName];
+
+		if (parameterObject == undefined)
+			return undefined;
+
+		return parameterObject.schema;
 	}
 
 	static getPropertyFromSchemas(openapi, schemaName, propertyName) {
@@ -704,6 +748,12 @@ class OpenApi {
 		return list;
 	}
 
+	static getDependenciesSchemas(openapi, schema) {
+		const list = [];
+		// TODO : varrer todos os schema.properties e adicionar na lista os property.properties que não se repetem
+		return list;
+	}
+
 	static getDependents(openapi, schemaNameTarget, onlyInDocument, localSchemas) {
 		const processSchema = (schema, schemaName, schemaNameTarget, onlyInDocument, list) => {
 			if (schema == undefined || schema.properties == undefined) return;
@@ -741,7 +791,6 @@ class OpenApi {
 	}
 	// (service, (service.field|foreignTableName)
 	static getForeignKeyDescription(openapi, schema, fieldName, localSchemas) {
-		let foreignKey = undefined;
 		let field = undefined;
 		let schemaName = "";
 
@@ -752,44 +801,64 @@ class OpenApi {
 			field = schema.properties[fieldName];
 		}
 
-		if (field != undefined) {
-			if (field.$ref != undefined) {
-				const serviceRef = this.getSchemaFromSchemas(openapi, field.$ref);
-
-				if (serviceRef == undefined) {
-					console.log(`[${this.constructor.name}.getForeignKeyDescription(${schemaName}, ${fieldName})] : missing service ${field.$ref}`);
-					return undefined;
-				}
-
-				const fieldsRef = serviceRef.primaryKeys;
-				let fields = []
-
-				if (fieldsRef.length == 1) {
-					fields = [fieldName];
-				} else if (fieldsRef.length > 1) {
-					for (let fieldRef of fieldsRef) {
-						if (OpenApi.getProperty(openapi, field.$ref, fieldRef, localSchemas) != undefined) {
-							fields.push(fieldRef);
-						}
-					}
-
-					if (fields.length == fieldsRef.length) {
-						const pos = fields.indexOf("id");
-
-						if (pos >= 0) fields[pos] = fieldName;
-					}
-				}
-
-				if (fields.length != fieldsRef.length)
-					console.error(`[${this.constructor.name}.getForeignKeyDescription(${schemaName}, ${fieldName})] : broken length :`, fields, fieldsRef);
-
-				foreignKey = {fields: fields, tableRef: field.$ref, fieldsRef: fieldsRef};
-			}
-		} else {
+		if (field == undefined) {
 			console.log(`[${this.constructor.name}.getForeignKeyDescription(${schemaName}, ${fieldName})] : missing field`);
+			return undefined;
 		}
 
-		return foreignKey;
+		if (field.$ref == undefined) {
+			return undefined;
+		}
+
+		const serviceRef = this.getSchemaFromSchemas(openapi, field.$ref);
+
+		if (serviceRef == undefined) {
+			console.log(`[${this.constructor.name}.getForeignKeyDescription(${schemaName}, ${fieldName})] : missing service ${field.$ref}`);
+			return undefined;
+		}
+
+		const fieldsRef = {};
+		for (const primaryKey of serviceRef.primaryKeys) fieldsRef[primaryKey] = null;
+
+		if (Object.keys(fieldsRef).length == 1) {
+			for (const primaryKey in fieldsRef) fieldsRef[primaryKey] = fieldName;
+		} else if (Object.keys(fieldsRef).length > 1) {
+			let pos = field.$ref.indexOf("?");
+
+			if (pos >= 0 && Qs != undefined) {
+				const primaryKeys = Qs.parse(field.$ref.substring(pos), {ignoreQueryPrefix: true, allowDots: true});
+				for (const primaryKey in primaryKeys) fieldsRef[primaryKey] = primaryKeys[primaryKey];
+			}
+
+			for (let fieldRef in fieldsRef) {
+				if (fieldsRef[fieldRef] == null && OpenApi.getProperty(openapi, field.$ref, fieldRef, localSchemas) != undefined) {
+					fieldsRef[fieldRef] = fieldRef;
+				}
+			}
+
+			for (let fieldRef in fieldsRef) if (fieldsRef[fieldRef] == "id") fieldsRef[fieldRef] = fieldName;
+		}
+
+		for (let fieldRef in fieldsRef) if (fieldsRef[fieldRef] == null) {
+			console.error(`[${this.constructor.name}.getForeignKeyDescription(${schemaName}, ${fieldName})] : don't pair with key ${fieldRef} :`, fieldsRef);
+		}
+		// TODO : alterar para {fieldsRef: {"key1": field1, "key2": field2, "key3": getQueryString(field.$ref, "key3"), "key4": getQueryString(field.$ref, "key4")}}
+		return {tableRef: field.$ref, fieldsRef: fieldsRef};
+	}
+
+	static getForeignKey(openapi, schema, fieldName, obj, localSchemas) {
+		const foreignKeyDescription = OpenApi.getForeignKeyDescription(openapi, schema, fieldName, localSchemas);
+
+		if (foreignKeyDescription == undefined)
+			return undefined;
+
+		const key = {};
+
+		for (let [fieldRef, field] of Object.entries(foreignKeyDescription.fieldsRef)) {
+			key[field] = obj[fieldRef];
+		}
+
+    	return key;
 	}
 
 	static getPrimaryKeyForeign(openapi, schema, fieldName, obj, localSchemas) {
@@ -802,19 +871,29 @@ class OpenApi {
 				return undefined;
 
 			const key = {};
+			const ret = {"table": foreignKeyDescription.tableRef, "primaryKey": key, "valid": false};
+			if (obj == undefined || obj == null) return ret;
 			let valid = true;
 
-			if (obj != undefined) {
-				for (let i = 0; i < foreignKeyDescription.fields.length; i++) {
-					const field = foreignKeyDescription.fields[i];
-					const fieldRef = foreignKeyDescription.fieldsRef[i];
-					const value = obj[field];
+			for (let [fieldRef, field] of Object.entries(foreignKeyDescription.fieldsRef)) {
+				if (typeof(field) == "string") {
+					let value;
+
+					if (field.startsWith("*") == true) {
+						value = field.substring(1);
+					} else {
+						value = obj[field];
+					}
+
 					key[fieldRef] = value;
 					if (value == undefined || value == "") valid = false;
+				} else {
+					valid = false;
 				}
 			}
 
-			return {"table": foreignKeyDescription.tableRef, "primaryKey": key, "valid": valid};
+			ret.valid = valid;
+			return ret;
 		}
 
 		let ret = undefined;

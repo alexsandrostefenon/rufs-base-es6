@@ -100,7 +100,7 @@ catch(err => {
 		"modules": [
 //*
 			{"path": "./AuthenticationMicroService.js"},//, "port": 8081
-			{"path": "./RufsServiceMicroService.js", "webapp": "./rufs-base-es6/webapp"},//, "port": 8082
+//			{"path": "./RufsServiceMicroService.js", "webapp": "./rufs-base-es6/webapp"},//, "port": 8082
 //*/
 		],
 		"cmds": [

@@ -341,10 +341,10 @@ class DataStoreManager {
     	return OpenApi.getPropertiesWithRef(this.openapi, serviceName, $ref, this.services);
 	}
     // devolve o rufsService apontado por field
-    getForeignService(service, fieldName) {
+    getForeignService(service, fieldName, debug) {
     	let field = undefined;
     	// TODO : refatorar consumidores da função getForeignService(field), pois pode haver mais de uma referência
-    	if (service.name == undefined && service.properties != undefined) {
+    	if (service.properties != undefined) {
     		field = service.properties[fieldName];
     	} else {
     		field = OpenApi.getProperty(this.openapi, service.name, fieldName, this.services);
@@ -352,32 +352,23 @@ class DataStoreManager {
 
     	if (field == undefined) {
     		console.error(`[${this.constructor.name}.getForeignService(${service.name}, ${fieldName})] : fail to find property`);
+    		if (debug == undefined)
+		    	this.getForeignService(service, fieldName, true);
     		return undefined;
     	}
 
         return this.getSchema(field.$ref);
     }
 	// (service, (service.field|foreignTableName), service.obj) => [{name: constraintName, table: foreignTableName, foreignKey: {}}]
-	getPrimaryKeyForeign(service, name, obj) {
-		return OpenApi.getPrimaryKeyForeign(this.openapi, service.name || service, name, obj, this.services);
+	getPrimaryKeyForeign(schema, name, obj) {
+		if (schema.name != undefined && OpenApi.getSchemaFromSchemas(this.openapi, schema.name) != undefined) schema = schema.name;
+		return OpenApi.getPrimaryKeyForeign(this.openapi, schema, name, obj, this.services);
 	}
 	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
 	// foreignKey = {rufsGroupOwner: 2, request: 1}
-	getForeignKey(service, name, obj) {
-		const foreignKeyDescription = OpenApi.getForeignKeyDescription(this.openapi, service.name, name, this.services);
-
-		if (foreignKeyDescription == undefined)
-			return undefined;
-
-		const key = {};
-
-		for (let i = 0; i < foreignKeyDescription.fields.length; i++) {
-			const field = foreignKeyDescription.fields[i];
-			const fieldRef = foreignKeyDescription.fieldsRef[i];
-			key[field] = obj[fieldRef];
-		}
-
-    	return key;
+	getForeignKey(schema, fieldName, obj) {
+		if (schema.name != undefined && OpenApi.getSchemaFromSchemas(this.openapi, schema.name) != undefined) schema = schema.name;
+		return OpenApi.getForeignKey(this.openapi, schema, fieldName, obj, this.services);
 	}
 
 }
@@ -531,6 +522,8 @@ class DataStoreItem extends DataStore {
 
 		if (field.$ref != undefined) {
 			const item = this.serverConnection.getPrimaryKeyForeign(this, fieldName, obj);
+			// TODO : rever se deve mesmo ignorar
+			if (item == undefined) return stringBuffer;
 			const service = this.serverConnection.getSchema(item.table);
 
 			if (service != undefined) {
