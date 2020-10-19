@@ -21,13 +21,14 @@ class MicroServiceClient extends ServerConnection {
 		if (this.config.host == undefined) this.config.host = MicroServiceServer.getArg("host", "localhost");
 		if (this.config.port == undefined) this.config.port = MicroServiceServer.getArg("port", "3000");
 		if (this.config.appName == undefined) this.config.appName = MicroServiceServer.getArg("appName", "rufs");
+		if (this.config.loginPath == undefined) this.config.loginPath = MicroServiceServer.getArg("login-path", "base/rest/login");
 		if (this.config.userId == undefined) this.config.userId = MicroServiceServer.getArg("user", "guest");
 		if (this.config.password == undefined) this.config.password = MicroServiceServer.getArg("password", "anonymous");
 		this.server = `${this.config.protocol}://${this.config.host}:${this.config.port}`;
 	}
 
 	login() {
-		return super.login(this.server, this.config.appName, this.config.userId, this.config.password);
+		return super.login(this.server, this.config.appName, this.config.loginPath, this.config.userId, this.config.password);
 	}
 /*
 	_updateList(path, listIn) {

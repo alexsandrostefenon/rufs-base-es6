@@ -39,14 +39,8 @@ class RufsProxy {
         console.log(`starting RufsProxy...`);
         
         {
-        	const arg = MicroServiceServer.getArg("add-modules", "[]");
-            let list;
-
-			try {
-	            list = JSON.parse(arg);
-			} catch (err) {
-				list = arg.split(",");
-			}
+        	const arg = MicroServiceServer.getArg("add-modules", []);
+            const list = Array.isArray(arg) ? arg : arg.split(",");
 
             for (const item of list) {
             	if (typeof item == "string") {
@@ -99,7 +93,7 @@ catch(err => {
 		"port": 8080,
 		"modules": [
 //*
-			{"path": "./AuthenticationMicroService.js"},//, "port": 8081
+//			{"path": "./AuthenticationMicroService.js"},//, "port": 8081
 //			{"path": "./RufsServiceMicroService.js", "webapp": "./rufs-base-es6/webapp"},//, "port": 8082
 //*/
 		],

@@ -51,10 +51,10 @@ class OpenApi {
 		dest.tags = source.tags;
 
 		for (let [schemaName, role] of Object.entries(roles)) {
-			dest.components.schemas[schemaName] = source.components.schemas[schemaName];
-			dest.components.responses[schemaName] = source.components.responses[schemaName];
-			dest.components.parameters[schemaName] = source.components.parameters[schemaName];
-			dest.components.requestBodies[schemaName] = source.components.requestBodies[schemaName];
+			if (source.components.schemas[schemaName] != undefined) dest.components.schemas[schemaName] = source.components.schemas[schemaName];
+			if (source.components.responses[schemaName] != undefined) dest.components.responses[schemaName] = source.components.responses[schemaName];
+			if (source.components.parameters[schemaName] != undefined) dest.components.parameters[schemaName] = source.components.parameters[schemaName];
+			if (source.components.requestBodies[schemaName] != undefined) dest.components.requestBodies[schemaName] = source.components.requestBodies[schemaName];
 
 			const pathIn = source.paths["/"+schemaName];
 			if (pathIn == undefined) continue;
@@ -296,6 +296,11 @@ class OpenApi {
 		const standartSchemas = {};
 
 		for (let [name, schema] of Object.entries(openapi.components.schemas)) {
+			if (schema == undefined) {
+				console.error(`[${this.constructor.name}.convertRufsToStandart(openapi)] : openapi.components.schemas[${name}] is undefined !`);
+				continue;
+			}
+
 			standartSchemas[name] = this.convertRufsToStandartSchema(schema);
 		}
 
@@ -477,13 +482,47 @@ class OpenApi {
 		console.log(`[${this.constructor.name}.copyFromInternalName] dataOut :`, dataOut);
 		return dataOut;
 	}
+
+	static getValueFromSchema(schema, propertyName, obj) {
+		const property = schema.properties[propertyName];
+
+		if (property != undefined) {
+			if (obj[propertyName] != undefined) return obj[propertyName];
+			if (property.internalName != undefined && obj[property.internalName] != undefined) return obj[property.internalName];
+		}
+
+		let ret = undefined;
+
+		for (const [fieldName, field] of Object.entries(schema.properties)) {
+			if (field.internalName == propertyName) {
+				ret = obj[fieldName];
+				break;
+			}
+		}
+
+		return ret;
+	}
 	// public
-	static copyFields(dataIn, schema) {
+	static copyFields(schema, dataIn, ignoreHiden) {
 		const ret = {};
 
 		for (let [fieldName, field] of Object.entries(schema.properties)) {
-			const value = dataIn[fieldName];
-			if (value != undefined) ret[fieldName] = this.copyValue(field, value);
+			if (ignoreHiden == true && field.hiden == true) continue;
+			const value = this.getValueFromSchema(schema, fieldName, dataIn);
+
+			if (field.type == "array") {
+				if (Array.isArray(value) == true) {
+					const list = ret[fieldName] = [];
+
+					for (const item of value) {
+						list.push(this.copyFields(field.items, item, ignoreHiden));
+					}
+				}
+			} else if (field.type == "object") {
+				ret[fieldName] = this.copyFields(field, value, ignoreHiden);
+			} else {
+				if (value != undefined) ret[fieldName] = this.copyValue(field, value);
+			}
 		}
 
 		return ret;
@@ -492,18 +531,13 @@ class OpenApi {
 	static getList(openapi, roles) {
 		if (openapi == undefined || openapi.components == undefined || openapi.components.schemas == undefined) return [];
 		const list = [];
-		const methods = ["get", "put", "post", "delete", "patch"];
 
-		for (const [schemaName, schema] of Object.entries(openapi.components.schemas)) {
-			const path = "/" + schemaName;
-			const pathItemObject = openapi.paths[path];
-			if (pathItemObject == undefined) continue;
-
-			for (const method of methods) {
-				const operationObject = pathItemObject[method];
+		for (const [schemaName, methods] of Object.entries(roles)) {
+			for (const method in methods) {
+				if (methods[method] == false) continue;
+				const operationObject = this.getOperationObject(openapi, schemaName, method);
 				if (operationObject == undefined) continue;
-				const item = {path, method};
-				item.operationId = operationObject.operationId || (path + "/" + method);
+				const item = {operationId: operationObject.operationId, path: "/" + schemaName, method: method};
 				const parameterSchema = OpenApi.getSchemaFromParameters(openapi, schemaName);
 				const requestBodySchema = OpenApi.getSchemaFromRequestBodies(openapi, schemaName);
 				const responseSchema = OpenApi.getSchemaFromSchemas(openapi, schemaName);
@@ -561,7 +595,7 @@ class OpenApi {
 				const schemaPrimaryKey = {"type": "object", "properties": {}, "required": schema.primaryKeys};
 
 				for (const primaryKey of schema.primaryKeys) {
-					schemaPrimaryKey.properties[primaryKey] = schema.properties[primaryKey];
+					schemaPrimaryKey.properties[primaryKey] = OpenApi.getPropertyFromSchema(schema, primaryKey);
 				}
 
 				openapi.components.parameters[schemaName] = {"name": "primaryKey", "in": "query", "required": true, "schema": OpenApi.convertRufsToStandartSchema(schemaPrimaryKey)};
@@ -580,7 +614,7 @@ class OpenApi {
 			for (let i = 0; i < methods.length; i++) {
 				const method = methods[i];
 				if (options.methods.includes(method) == false) continue;
-				const operationObject = {"operationId": `${method}_${schemaName}`};
+				const operationObject = {"operationId": `zzz_${method}_${schemaName}`};
 
 				if (methodsHaveParameters[i] == true && openapi.components.parameters[schemaName] != undefined) operationObject.parameters = parametersRef;
 				if (methodsHaveRequestBody[i] == true) operationObject.requestBody = requestBodyRef;
@@ -612,9 +646,10 @@ class OpenApi {
 		return ret;
 	}
 
-	static getSchemaFromSchemas(openapi, schemaName) {
-		schemaName = this.getSchemaName(schemaName);
-		return openapi.components.schemas[schemaName];
+	static getSchemaFromSchemas(openapi, $ref) {
+		const schemaName = this.getSchemaName($ref);
+		const schema = openapi.components.schemas[schemaName];
+		return schema;
 	}
 
 	static getSchemaFromRequestBodies(openapi, schemaName) {
@@ -646,12 +681,37 @@ class OpenApi {
 		return parameterObject.schema;
 	}
 
+	static getOperationObject(openapi, resource, method) {
+		let operationObject = undefined;
+		const pathItemObject = openapi.paths["/" + resource];
+
+		if (pathItemObject != undefined) {
+			operationObject = pathItemObject[method.toLowerCase()];
+		}
+
+		return operationObject;
+	}
+
+	static getPropertyFromSchema(schema, propertyName) {
+		if (schema.properties[propertyName] != undefined) return schema.properties[propertyName];
+		let ret = undefined;
+
+		for (const [fieldName, field] of Object.entries(schema.properties)) {
+			if (field.internalName == propertyName) {
+				ret = field;
+				break;
+			}
+		}
+
+		return ret;
+	}
+
 	static getPropertyFromSchemas(openapi, schemaName, propertyName) {
 		let field;
 		const schema = this.getSchemaFromSchemas(openapi, schemaName);
 
 		if (schema != undefined)
-			field = schema.properties[propertyName];
+			field = OpenApi.getPropertyFromSchema(schema, propertyName);
 
 		return field;
 	}
@@ -661,7 +721,7 @@ class OpenApi {
 		const schema = this.getSchemaFromRequestBodies(openapi, schemaName);
 
 		if (schema != undefined)
-			field = schema.properties[propertyName];
+			field = OpenApi.getPropertyFromSchema(schema, propertyName);
 
 		return field;
 	}
@@ -671,7 +731,7 @@ class OpenApi {
 		let field;
 
 		if (localSchemas && localSchemas[schemaName] && localSchemas[schemaName].properties)
-			field = localSchemas[schemaName].properties[propertyName];
+			field = OpenApi.getPropertyFromSchema(localSchemas[schemaName], propertyName);
 
 		if (field == undefined) {
 			field = OpenApi.getPropertyFromSchemas(openapi, schemaName, propertyName);
@@ -726,7 +786,11 @@ class OpenApi {
 			if (schema == undefined || schema.properties == undefined) return;
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
-				if (field.$ref != undefined) {
+				if (field.type == "array") {
+					processDependenciesFromSchema(field.items, list);
+				} else if (field.type == "object") {
+					processDependenciesFromSchema(field, list);
+				} else if (field.$ref != undefined) {
 					processDependency(this.getSchemaName(field.$ref), list);
 				}
 			}
@@ -741,6 +805,11 @@ class OpenApi {
 			processDependenciesFromSchema(localSchemas[schemaName], list);
 
 		let schema = this.getSchemaFromRequestBodies(openapi, schemaName);
+
+		if (schema != undefined && schema.properties != undefined)
+			processDependenciesFromSchema(schema, list);
+
+		schema = this.getSchemaFromSchemas(openapi, schemaName);
 
 		if (schema != undefined && schema.properties != undefined)
 			processDependenciesFromSchema(schema, list);
@@ -798,7 +867,7 @@ class OpenApi {
 			schemaName = schema;
 			field = OpenApi.getProperty(openapi, schemaName, fieldName, localSchemas);
 		} else if (schema.properties != undefined) {
-			field = schema.properties[fieldName];
+			field = OpenApi.getPropertyFromSchema(schema, fieldName);
 		}
 
 		if (field == undefined) {
@@ -863,7 +932,15 @@ class OpenApi {
 
 	static getPrimaryKeyForeign(openapi, schema, fieldName, obj, localSchemas) {
 		const process = (openapi, schema, fieldName, obj) => {
-			if (schema == undefined || schema.properties == undefined) return;
+			if (schema == undefined) {
+				console.error(`[${this.constructor.name}.getPrimaryKeyForeign.process] schema undefined`, schema);
+				return;
+			}
+
+			if (schema.properties == undefined) {
+				console.error(`[${this.constructor.name}.getPrimaryKeyForeign.process] schema.properties undefined`, schema);
+				return;
+			}
 
 			const foreignKeyDescription = this.getForeignKeyDescription(openapi, schema, fieldName, localSchemas);
 
@@ -875,14 +952,14 @@ class OpenApi {
 			if (obj == undefined || obj == null) return ret;
 			let valid = true;
 
-			for (let [fieldRef, field] of Object.entries(foreignKeyDescription.fieldsRef)) {
-				if (typeof(field) == "string") {
+			for (let [fieldRef, fieldNameMap] of Object.entries(foreignKeyDescription.fieldsRef)) {
+				if (typeof(fieldNameMap) == "string") {
 					let value;
 
-					if (field.startsWith("*") == true) {
-						value = field.substring(1);
+					if (fieldNameMap.startsWith("*") == true) {
+						value = fieldNameMap.substring(1);
 					} else {
-						value = obj[field];
+						value = OpenApi.getValueFromSchema(schema, fieldNameMap, obj);
 					}
 
 					key[fieldRef] = value;
@@ -914,32 +991,6 @@ class OpenApi {
 		}
 
 		return ret;
-	}
-
-	static getPrimaryKeyForeignList(openapi, schemaName, obj, localSchemas) {
-		const processSchema = (openapi, schema, obj, list) => {
-			if (schema == undefined || schema.properties == undefined) return;
-
-			for (let [fieldName, field] of Object.entries(schema.properties)) {
-				if (field.$ref != undefined) {
-					const item = this.getPrimaryKeyForeign(openapi, schemaName, fieldName, obj);
-
-					if (item.valid == true && list.find(candidate => candidate.fieldName == fieldName) == undefined) {
-						list.push({"fieldName": fieldName, item});
-					}
-				}
-			}
-		}
-
-		schemaName = this.getSchemaName(schemaName);
-		const list = [];
-
-		if (localSchemas && localSchemas[schemaName])
-			processSchema(openapi, localSchemas[schemaName], obj, list);
-
-		processSchema(openapi, this.getSchemaFromRequestBodies(openapi, schemaName), obj, list);
-		processSchema(openapi, this.getSchemaFromSchemas(openapi, schemaName), obj, list);
-		return list;
 	}
 
 }

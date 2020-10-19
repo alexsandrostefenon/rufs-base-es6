@@ -52,8 +52,10 @@ class HttpRestRequest {
 	}
 	// private
 	request(path, method, params, objSend) {
-		let url = this.url + "/" + path;
-		
+		let url = this.url;
+		if (url.endsWith("/") == false && path.startsWith("/") == false) url = url + "/";
+		url = url + path;
+
 		if (params != undefined && params != null) {
 			url = url + "?" + Qs.stringify(params, {allowDots: true});
 		}
@@ -175,18 +177,21 @@ class RufsService extends DataStoreItem {
 		if (schema == undefined)
 			schema = this;
 
-    	return this.httpRest.save(this.pathRest, OpenApi.copyFields(itemSend, schema)).then(data => this.updateList(data));
+    	return this.httpRest.save(this.pathRest, OpenApi.copyFields(schema, itemSend)).
+    	then(data => {
+    		return this.updateList(data);
+    	});
 	}
 
 	update(primaryKey, itemSend) {
-        return this.httpRest.update(this.pathRest, primaryKey, OpenApi.copyFields(itemSend, this)).then(data => {
+        return this.httpRest.update(this.pathRest, primaryKey, OpenApi.copyFields(this, itemSend)).then(data => {
             let pos = this.findPos(primaryKey);
         	return this.updateList(data, pos, pos);
         });
 	}
 
 	patch(itemSend) {
-    	return this.httpRest.patch(this.pathRest, OpenApi.copyFields(itemSend, this)).then(data => this.updateList(data));
+    	return this.httpRest.patch(this.pathRest, OpenApi.copyFields(this, itemSend)).then(data => this.updateList(data));
 	}
 
 	remove(primaryKey) {
@@ -291,14 +296,14 @@ class ServerConnection extends DataStoreManager {
 		};
 	}
     // public
-    login(server, path, user, password, RufsServiceClass, callbackPartial) {
+    login(server, path, loginPath, user, password, RufsServiceClass, callbackPartial) {
 		this.url = server;
 		if (path != null && path.startsWith("/")) path = path.substring(1);
 		if (path != null && path.endsWith("/")) path = path.substring(0, path.length-1);
 		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
-    	return this.httpRest.request("base/rest/login", "POST", null, {"userId":user, "password":password}).
+    	return this.httpRest.request(loginPath, "POST", null, {"userId":user, "password":password}).
     	then(loginResponse => {
     		this.title = loginResponse.title;
 			this.rufsGroupOwner = loginResponse.rufsGroupOwner;

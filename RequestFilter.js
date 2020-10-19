@@ -87,7 +87,8 @@ class RequestFilter {
 		return entityManager.findOne(serviceName, primaryKey).
 		then(obj => {
 			if (useDocument != true) return obj;
-			return RequestFilter.dataStoreManager.getDocument(serviceName, obj, true, tokenData);
+			const service = this.getSchema(tokenData, serviceName);
+			return RequestFilter.dataStoreManager.getDocument(service, obj, true, tokenData);
 		}).
 		catch(error => {
 			throw new Error(`[RequestFilter.getObject] for service ${serviceName}, fail to find object with primaryKey ${JSON.stringify(primaryKey)} : ` + error.message);
@@ -158,7 +159,7 @@ class RequestFilter {
 		}
 
 		const service = RequestFilter.getSchema(tokenData, serviceName);
-		const obj = OpenApi.copyFields(queryParameters, service);
+		const obj = OpenApi.copyFields(service, queryParameters);
 		let ret;
 
 		if (onlyPrimaryKey == true)
@@ -237,10 +238,10 @@ class RequestFilter {
 				const token = authorizationHeader.substring(authorizationHeaderPrefix.length);
 				tokenData = jwt.verify(token, process.env.JWT_SECRET || "123456");
 			} catch (err) {
-				throw new Exception("JWT Authorization fail : " + err);
+				throw new Error("JWT Authorization fail : " + err);
 			}
 		} else {
-			throw new Exception("Authorization token header invalid");
+			throw new Error("Authorization token header invalid");
 		}
 
 		return tokenData;

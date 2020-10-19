@@ -1,8 +1,10 @@
 import fs from "fs";
+import jwt from "jsonwebtoken";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 import {RequestFilter} from "./RequestFilter.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
+import {Filter} from "./webapp/es6/DataStore.js";
 import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {HttpRestRequest} from "./webapp/es6/ServerConnection.js";
 import {FileDbAdapter} from "./FileDbAdapter.js";
@@ -55,7 +57,8 @@ class RufsServiceDbSync {
 	// TODO : refatorar função genSqlForeignKey(fieldName, field, openapi) para genSqlForeignKey(tableName, openapi)
 	genSqlForeignKey(fieldName, field, openapi) {
 		const ret = [];
-		let tableOut = CaseConvert.camelToUnderscore(field.$ref.substring(field.$ref.lastIndexOf("/")+1));
+		const $ref = OpenApi.getSchemaName($ref);
+		const tableOut = CaseConvert.camelToUnderscore($ref);
 		const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
 		ret.push(str);
 		return ret.join(",");
@@ -157,11 +160,81 @@ class RufsMicroService extends MicroServiceServer {
 		this.entityManager = new DbClientPostgres(this.config.dbConfig, this.config.dbMissingPrimaryKeys);
 	}
 
+	authenticateUser(userName, userPassword, loginResponse) {
+		// sleep one secound to prevent db/disk over access in network atack
+		return new Promise(r => setTimeout(r, 1000)).
+		then(() => this.loadRufsTables()).
+		then(() => {
+			let user = Filter.findOne(this.listUser, {"name": userName});
+
+			if (!user || user.password != userPassword)
+				throw "Don't match user and password.";
+
+			// TODO : adjusts user.menu and user.routes to starts with default "rufs" in addr
+			loginResponse.rufsGroupOwner = user.rufsGroupOwner;
+			loginResponse.routes = user.routes;
+			loginResponse.path = user.path;
+			loginResponse.menu = user.menu;
+
+			if (loginResponse.rufsGroupOwner) {
+				const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);
+				const rufsGroupOwner = Filter.findOne(this.listGroupOwner, item.primaryKey);
+				if (rufsGroupOwner != null) loginResponse.title = rufsGroupOwner.name + " - " + userName;
+			}
+
+			Filter.find(this.listGroupUser, {"rufsUser": user.id}).forEach(item => loginResponse.tokenPayload.groups.push(item.rufsGroup));
+			// TODO : código temporário para caber o na tela do celular
+			loginResponse.title = userName;
+			return JSON.parse(user.roles);
+		});
+    }
+	// return a promise
 	onRequest(req, res, next, resource, action) {
-		let access = RequestFilter.checkAuthorization(req, resource, action);
-		if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
-		if (resource == "rufsService" && req.method == "GET" && action == "query") return Promise.resolve(Response.ok(OpenApi.getList(this.openapi/*, req.tokenPayload.roles*/)));
-		return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
+		if (resource == "login") {
+			const getRolesMask = roles => {
+				const ret = {};
+
+				for (let [schemaName, role] of Object.entries(roles)) {
+					let mask = 0;
+					if (role["get"] == undefined) mask |= 1 << 0;
+					if (role["get"] == true)      mask |= 1 << 0;
+					if (role["post"] == true)     mask |= 1 << 1;
+					if (role["patch"] == true)    mask |= 1 << 2;
+					if (role["put"] == true)      mask |= 1 << 3;
+					if (role["delete"] == true)   mask |= 1 << 4;
+					ret[schemaName] = mask;
+				}
+
+				return ret;
+			}
+
+			const userName = req.body.userId;
+			const loginResponse = {"title": "", "rufsGroupOwner": null, "routes": null, "path": "", "menu": null, "openapi": {}};
+			loginResponse.tokenPayload = {"name": userName, "rufsGroupOwner": null, "groups": [], "roles": {}, "ip": req.ip};
+			return this.authenticateUser(userName, req.body.password, loginResponse).
+			catch(msg => Response.unauthorized(msg)).
+			then(roles => {
+				if (userName == "admin") {
+					loginResponse.openapi = RequestFilter.dataStoreManager.openapi;
+				} else {
+					loginResponse.openapi = OpenApi.create({});
+					OpenApi.copy(loginResponse.openapi, RequestFilter.dataStoreManager.openapi, roles);
+					this.storeOpenApi(loginResponse.openapi, `openapi-${userName}.json`);
+				}
+
+				loginResponse.tokenPayload.roles = getRolesMask(roles);
+				// TODO : fazer expirar no final do expediente diário
+				loginResponse.tokenPayload.rufsGroupOwner = loginResponse.rufsGroupOwner;
+				// warning tokenPayload is http.header size limited to 8k
+				loginResponse.tokenPayload = jwt.sign(loginResponse.tokenPayload, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
+			}).
+			then(() => Response.ok(loginResponse));
+		} else {
+			let access = RequestFilter.checkAuthorization(req, resource, action);
+			if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+			if (resource == "rufsService" && req.method == "GET" && action == "query") return Promise.resolve(Response.ok(OpenApi.getList(this.openapi, req.tokenPayload.roles)));
+			return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
+		}
 	}
 
 	loadRufsTables() {

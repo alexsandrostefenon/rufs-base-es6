@@ -38,12 +38,12 @@ class RufsSchema {
 			for (let [name, list] of Object.entries(this.uniqueKeys)) {
 				if (list.find(fieldName => this.properties[fieldName].tableVisible == false) == undefined) {
 					for (let fieldName of list) if (this.shortDescriptionList.includes(fieldName) == false) this.shortDescriptionList.push(fieldName);
-					if (this.shortDescriptionList.length > 3) break;
+					if (this.shortDescriptionList.length >= 3) break;
 				}
 			}
 
 			for (let [fieldName, field] of entries) {
-				if (this.shortDescriptionList.length > 3) break;
+				if (this.shortDescriptionList.length >= 3) break;
 				
 				if (field.tableVisible == true && this.shortDescriptionList.includes(fieldName) == false) {
 					this.shortDescriptionList.push(fieldName);
@@ -199,18 +199,15 @@ class DataStoreManager {
 		const removeBrokenRefs = (schema, openapi) => {
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				if (field.$ref != undefined) {
-					let $ref = field.$ref;
-
-					{
-						const pos = $ref.lastIndexOf("/");
-						if (pos >= 0) $ref = $ref.substring(pos+1);
-					}
+					const $ref = OpenApi.getSchemaName(field.$ref);
 
 					if (this.services[$ref] == undefined) {
+						console.error(`[${this.constructor.name}.setSchemas] : missing this.services of ${$ref}`);
 						delete field.$ref;
 					}
 
 					if (openapi != undefined && openapi.components.schemas[$ref] == undefined) {
+						console.error(`[${this.constructor.name}.setSchemas] : missing openapi.components.schemas of ${$ref}`);
 						delete field.$ref;
 					}
 				}
@@ -251,11 +248,7 @@ class DataStoreManager {
 	}
 
 	getSchema($ref, tokenData) {
-		{
-			const pos = $ref.lastIndexOf("/");
-			if (pos >= 0) $ref = $ref.substring(pos+1);
-		}
-
+		$ref = OpenApi.getSchemaName($ref);
 		const serviceName = CaseConvert.underscoreToCamel($ref, false);
 
 		if (tokenData && tokenData.roles[serviceName] == undefined) {
@@ -282,7 +275,23 @@ class DataStoreManager {
         	return Promise.resolve(null);
 	}
 
-	getDocument(schemaName, obj, merge, tokenData) {
+	getDocument(service, obj, merge, tokenData) {
+		const getPrimaryKeyForeignList = (schema, obj) => {
+			const list = [];
+
+			for (let [fieldName, field] of Object.entries(schema.properties)) {
+				if (field.$ref != undefined) {
+					const item = this.getPrimaryKeyForeign(schema, fieldName, obj);
+
+					if (item.valid == true && list.find(candidate => candidate.fieldName == fieldName) == undefined) {
+						list.push({"fieldName": fieldName, item});
+					}
+				}
+			}
+
+			return list;
+		}
+
 		let document;
 
 		if (merge != true) {
@@ -298,19 +307,22 @@ class DataStoreManager {
 				if (list.length == 0) return;
 				const data = list.shift();
 				const schemaRef = this.getSchema(data.item.table);
+				if (schemaRef == undefined) {
+					console.error(data);
+					this.getSchema(data.item.table);
+				}
 				return this.get(schemaRef.name, data.item.primaryKey).
 				then(objExternal => document[data.fieldName] = objExternal).
 				catch(err => console.error(err)).
 				finally(() => next(document, list));
 			}
 
-			const listToGet = OpenApi.getPrimaryKeyForeignList(this.openapi, schemaName, obj, this.services);
+			const listToGet = getPrimaryKeyForeignList(service, obj);
 			promises.push(next(document, listToGet));
 		}
 		// One To Many
 		{
-			const service = this.getSchema(schemaName, tokenData);
-			const dependents = this.getDependents(schemaName, true);
+			const dependents = this.getDependents(service.name, true);
 
 			for (let item of dependents) {
 				const rufsServiceOther = this.getSchema(item.table, tokenData);
@@ -486,10 +498,12 @@ class DataStoreItem extends DataStore {
 
 		let promise;
 
-		if (dataStoreManager != undefined && dataStoreManager.services[this.name] != undefined)
-			promise = dataStoreManager.getDocument(this.name, obj, false);
-		else
-			promise = Promise.resolve();
+		if (dataStoreManager != undefined && dataStoreManager.services[this.name] != undefined) {
+			const service = this.serverConnection.getSchema(this.name);
+			promise = dataStoreManager.getDocument(service, obj, false);
+		} else {
+			promise = dataStoreManager.getDocument(this, obj, false);
+		}
 
 		return promise.then(() => {
 			for (let fieldName in this.properties) this.setValue(fieldName, obj);
@@ -502,14 +516,9 @@ class DataStoreItem extends DataStore {
 	}
     // private
 	buildField(stringBuffer, fieldName, obj) {
-    	let value = obj[fieldName];
+		const value = OpenApi.getValueFromSchema(this, fieldName, obj)
 
 		if (value == undefined || value == null || value === "") {
-			return stringBuffer;
-		}
-		
-		if ((value instanceof Date) == false && (value instanceof Object) == true) {
-			stringBuffer.push(JSON.stringify(value));
 			return stringBuffer;
 		}
 
@@ -517,6 +526,11 @@ class DataStoreItem extends DataStore {
 
 		if (field == undefined) {
 			console.error("buildField : field ", fieldName, " don't found in properties, options are : ", this.properties);
+			return stringBuffer;
+		}
+
+		if ((value instanceof Date) == false && (value instanceof Object) == true) {
+			stringBuffer.push(JSON.stringify(value));
 			return stringBuffer;
 		}
 

@@ -32,7 +32,7 @@ class FileDbAdapter {
 				let item = list[i];
 
 				if (item.id == undefined) {
-					item = OpenApi.copyFields(item, rufsSchema);
+					item = OpenApi.copyFields(rufsSchema, item);
 					item.id = ++i;
 				}
 
