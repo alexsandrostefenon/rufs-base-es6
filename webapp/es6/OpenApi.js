@@ -389,6 +389,34 @@ class OpenApi {
 		return openapi;
 	}
 
+	static getMaxFieldSize(schema, fieldName) {
+		let ret = 0;
+		const field = schema.properties[fieldName];
+		const type = field["type"];
+
+		if (type == undefined || type == "string") {
+			if (field.maxLength != undefined) {
+				ret = field.maxLength;
+			} else {
+				ret = 100;
+			}
+		} else if (type == "integer") {
+			ret = 9;
+		} else if (type == "number") {
+			if (field.precision != undefined) {
+				ret = field.precision;
+			} else {
+				ret = 15;
+			}
+		} else if (type == "boolean") {
+			ret = 5;
+		} else if (type == "date" || type == "date-time") {
+			ret = 30;
+		}
+
+		return ret;
+	}
+
 	static copyValue(field, value) {
 		let ret;
 		const type = field["type"];

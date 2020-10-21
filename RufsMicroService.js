@@ -57,7 +57,7 @@ class RufsServiceDbSync {
 	// TODO : refatorar função genSqlForeignKey(fieldName, field, openapi) para genSqlForeignKey(tableName, openapi)
 	genSqlForeignKey(fieldName, field, openapi) {
 		const ret = [];
-		const $ref = OpenApi.getSchemaName($ref);
+		const $ref = OpenApi.getSchemaName(field.$ref);
 		const tableOut = CaseConvert.camelToUnderscore($ref);
 		const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
 		ret.push(str);
@@ -212,7 +212,6 @@ class RufsMicroService extends MicroServiceServer {
 			const loginResponse = {"title": "", "rufsGroupOwner": null, "routes": null, "path": "", "menu": null, "openapi": {}};
 			loginResponse.tokenPayload = {"name": userName, "rufsGroupOwner": null, "groups": [], "roles": {}, "ip": req.ip};
 			return this.authenticateUser(userName, req.body.password, loginResponse).
-			catch(msg => Response.unauthorized(msg)).
 			then(roles => {
 				if (userName == "admin") {
 					loginResponse.openapi = RequestFilter.dataStoreManager.openapi;
@@ -228,7 +227,8 @@ class RufsMicroService extends MicroServiceServer {
 				// warning tokenPayload is http.header size limited to 8k
 				loginResponse.tokenPayload = jwt.sign(loginResponse.tokenPayload, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
 			}).
-			then(() => Response.ok(loginResponse));
+			then(() => Response.ok(loginResponse)).
+			catch(msg => Response.unauthorized(msg));
 		} else {
 			let access = RequestFilter.checkAuthorization(req, resource, action);
 			if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));

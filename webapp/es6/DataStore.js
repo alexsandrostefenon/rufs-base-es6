@@ -31,22 +31,26 @@ class RufsSchema {
 		}
 		// Se não foi definido manualmente o shortDescriptionList, monta em modo automático usando os uniqueMaps
 		if (this.shortDescriptionList.length == 0) {
+			let shortDescriptionListSize = 0;
+
 			if (this.primaryKeys.find(fieldName => this.properties[fieldName].tableVisible == false) == undefined) {
 				Array.prototype.push.apply(this.shortDescriptionList, this.primaryKeys);
+				for (let fieldName of this.primaryKeys) shortDescriptionListSize += OpenApi.getMaxFieldSize(schema, fieldName);
 			}
 
 			for (let [name, list] of Object.entries(this.uniqueKeys)) {
 				if (list.find(fieldName => this.properties[fieldName].tableVisible == false) == undefined) {
 					for (let fieldName of list) if (this.shortDescriptionList.includes(fieldName) == false) this.shortDescriptionList.push(fieldName);
-					if (this.shortDescriptionList.length >= 3) break;
+					if (this.shortDescriptionList.length > 3 || shortDescriptionListSize > 30) break;
 				}
 			}
 
 			for (let [fieldName, field] of entries) {
-				if (this.shortDescriptionList.length >= 3) break;
-				
+				if (this.shortDescriptionList.length > 3 || shortDescriptionListSize > 30) break;
+
 				if (field.tableVisible == true && this.shortDescriptionList.includes(fieldName) == false) {
 					this.shortDescriptionList.push(fieldName);
+					shortDescriptionListSize += OpenApi.getMaxFieldSize(schema, fieldName);
 				}
 			}
 		}
