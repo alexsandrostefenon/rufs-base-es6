@@ -266,7 +266,7 @@ class SqlAdapterPostgres {
 class DbClientPostgres {
 
 	constructor(dbConfig, dbMissingPrimaryKeys) {
-		this.limitQuery = 10 * 1000;
+		this.limitQuery = 1000;
 		this.dbConfig = {};
 		this.dbMissingPrimaryKeys = dbMissingPrimaryKeys || {};
 

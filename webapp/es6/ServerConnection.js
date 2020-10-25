@@ -84,19 +84,23 @@ class HttpRestRequest {
 				throw new Error("HttpRestRequest.request : unknow data type");
 			}
 		}
-		
-		let promise;
-		let _fetch = HttpRestRequest.fetch;
-		if (_fetch == undefined) _fetch = fetch;
-		
-		if (HttpRestRequest.$q) {
-			promise = HttpRestRequest.$q.when(_fetch(url, options));
-		} else {
-			promise = HttpRestRequest.fetch(url, options);
-		}
-		
+
 		this.messageWorking = "Processing request to " + url;
 		this.messageError = "";
+		let promise = Promise.resolve();
+
+		if (this.$scope != undefined) {
+			promise = promise.then(() => this.$scope.$apply());
+		}
+
+		let _fetch = HttpRestRequest.fetch;
+		if (_fetch == undefined) _fetch = fetch;
+
+		if (HttpRestRequest.$q) {
+			promise = promise.then(() => HttpRestRequest.$q.when(_fetch(url, options)));
+		} else {
+			promise = promise.then(() => HttpRestRequest.fetch(url, options));
+		}
 
 		return promise.then(response => {
 			this.messageWorking = "";
@@ -121,6 +125,7 @@ class HttpRestRequest {
 			}
 		}).catch(error => {
 			this.messageError = error.message;
+			if (this.$scope != undefined) this.$scope.$apply();
 			throw error;
 		});
 	}

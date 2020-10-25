@@ -642,7 +642,13 @@ class OpenApi {
 			for (let i = 0; i < methods.length; i++) {
 				const method = methods[i];
 				if (options.methods.includes(method) == false) continue;
-				const operationObject = {"operationId": `zzz_${method}_${schemaName}`};
+				const operationObject = {};
+
+				if (options.methods.length > 1) {
+					operationObject.operationId = `zzz_${method}_${schemaName}`;
+				} else {
+					operationObject.operationId = schemaName;
+				}
 
 				if (methodsHaveParameters[i] == true && openapi.components.parameters[schemaName] != undefined) operationObject.parameters = parametersRef;
 				if (methodsHaveRequestBody[i] == true) operationObject.requestBody = requestBodyRef;

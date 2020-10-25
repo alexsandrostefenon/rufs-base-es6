@@ -191,7 +191,7 @@ class DataStore extends RufsSchema {
 			ret = this.updateList(data, pos, pos);
 		}
 
-		console.log(`[${this.constructor.name}.cache(${JSON.stringify(primaryKey)})] :`, ret);
+//		console.log(`[${this.constructor.name}.cache(${JSON.stringify(primaryKey)})][${this.name}] :`, ret);
 		return ret;
 	}
 
@@ -344,6 +344,14 @@ class DataStoreManager {
 		return Promise.all(promises).then(() => document);
 	}
 
+	getDocuments(service, list, index) {
+		if (index == undefined) index = 0;
+		if (index >= list.length) return Promise.resolve();
+		const item = list[index];
+//		console.log(`[${this.constructor.name}.getDocuments(${this.name})] : updating references to register ${index}`, service.getPrimaryKey(item));
+		return this.getDocument(service, item, false).then(() => this.getDocuments(service, list, ++index));
+	}
+
 	getDependencies(schemaName, list) {
 		return OpenApi.getDependencies(this.openapi, schemaName, list, this.services);
 	}
@@ -433,40 +441,46 @@ class DataStoreItem extends DataStore {
 		});
 	}
 
-	setValue(fieldName, obj) {
-		const field = this.properties[fieldName];
-		delete field.externalReferencesStr;
-		let value = obj[fieldName];
+	setValues(obj, enableDefault, dataStoreManager) {
+		const setValue = (fieldName, obj) => {
+			const field = this.properties[fieldName];
+			delete field.externalReferencesStr;
+			let value = obj[fieldName];
 
-		if (value != undefined) {
-			if (field.$ref != undefined) {
-				field.externalReferencesStr = this.buildFieldStr(fieldName, obj);
-			} else if (field.flags != undefined && field.flags != null) {
-				// field.flags : String[], vm.instanceFlags[fieldName] : Boolean[]
-				this.instanceFlags[fieldName] = Utils.strAsciiHexToFlags(value.toString(16));
-			} else if (field.enum != undefined) {
-				let pos;
+			if (value != undefined) {
+				if (field.$ref != undefined) {
+					field.externalReferencesStr = this.buildFieldStr(fieldName, obj);
+				} else if (field.flags != undefined && field.flags != null) {
+					// field.flags : String[], vm.instanceFlags[fieldName] : Boolean[]
+					this.instanceFlags[fieldName] = Utils.strAsciiHexToFlags(value.toString(16));
+				} else if (field.enum != undefined) {
+					let pos;
 
-				if (value instanceof Object) {
-					let strValue = JSON.stringify(value);
-					pos = field.filterResultsStr.indexOf(strValue);
-					field.externalReferencesStr = field.filterResultsStr[pos];
-				} else {
-					pos = field.filterResults.indexOf(value);
-					field.externalReferencesStr = field.filterResultsStr[pos];
-				}
+					if (value instanceof Object) {
+						let strValue = JSON.stringify(value);
+						pos = field.filterResultsStr.indexOf(strValue);
+						field.externalReferencesStr = field.filterResultsStr[pos];
+					} else {
+						if (field.filterResults != undefined) {
+							pos = field.filterResults.indexOf(value);
+							field.externalReferencesStr = field.filterResultsStr[pos];
+						} else {
+							debugger;
+							console.error(`[${this.constructor.name}.setValues().setValue(${fieldName})] : field.filterResults is undefined !`);
+//							console.trace();
+						}
+					}
 
-				if (pos < 0) {
-					console.error(`DataStoreItem.setValue(${fieldName}) : don\'t found\nvalue:`, value, `\nstr:\n`, field.externalReferences, `\noptions:\n`, field.filterResultsStr);
+					if (pos < 0) {
+						console.error(`DataStoreItem.setValue(${fieldName}) : don\'t found\nvalue:`, value, `\nstr:\n`, field.externalReferences, `\noptions:\n`, field.filterResultsStr);
+					}
 				}
 			}
+
+			this.instance[fieldName] = OpenApi.copyValue(field, value);
 		}
 
-		this.instance[fieldName] = OpenApi.copyValue(field, value);
-	}
-
-	setValues(obj, enableDefault, dataStoreManager) {
-		let getDefaultValue = field => {
+		const getDefaultValue = field => {
 			let value;
 
 			if (field.default != undefined) {
@@ -510,7 +524,7 @@ class DataStoreItem extends DataStore {
 		}
 
 		return promise.then(() => {
-			for (let fieldName in this.properties) this.setValue(fieldName, obj);
+			for (let fieldName in this.properties) setValue(fieldName, obj);
 		});
 	}
 // Aggregate Section
@@ -553,7 +567,7 @@ class DataStoreItem extends DataStore {
 				} else {
 					let pos = service.findPos(primaryKey);
 //					console.error(`[${this.constructor.name}.buildField] don't find item from service ${service.name} with primaryKey ${JSON.stringify(primaryKey)}, used ${service.name}.getPrimaryKeyForeign(${JSON.stringify(obj)}, ${fieldName}, ${JSON.stringify(field.$ref)})`);
-	//				throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
+//					throw new Error(`this.buildField : don't find itemStr from service ${service.name}`);
 				}
 			} else {
 				console.error(`[${this.constructor.name}.buildField] don't loaded service ${item.table}`);
