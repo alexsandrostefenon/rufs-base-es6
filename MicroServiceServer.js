@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import websocket from "websocket";
 import url from "url";
 import path from "path";
+import Qs from "qs";
 
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 import {OpenApi} from "./webapp/es6/OpenApi.js";
@@ -60,7 +61,7 @@ class MicroServiceServer {
 		config.appName = preferenceConfig.appName || MicroServiceServer.getArg("name", "");
 		config.port = preferenceConfig.port || MicroServiceServer.getArg("port", "9080");
 
-		config.apiPath = preferenceConfig.apiPath || MicroServiceServer.getArg("api_path", "/rest");
+		config.apiPath = preferenceConfig.apiPath || MicroServiceServer.getArg("api_path", "rest");
 		config.requestBodyContentType = preferenceConfig.requestBodyContentType || MicroServiceServer.getArg("request_body_content_type", "application/json");
 		config.responseContentType = preferenceConfig.responseContentType || MicroServiceServer.getArg("response_content_type", "application/json");
 		config.security = preferenceConfig.security || MicroServiceServer.getArg("security", "jwt");
@@ -96,7 +97,12 @@ class MicroServiceServer {
 			this.expressServer.use("/", express.static(path));
 
 		console.log(`[${this.constructor.name}.constructor()] service ${this.config.appName}, port ${this.config.port} : restServer at : ${this.config.apiPath}`);
-		this.expressServer.use(this.config.apiPath, this.restServer);
+		this.expressServer.use("/" + this.config.apiPath, this.restServer);
+
+		if (this.config.apiPath != "rest") {
+			console.log(`[${this.constructor.name}.constructor()] service ${this.config.appName}, port ${this.config.port} : restServer at : rest`);
+			this.expressServer.use("/rest", this.restServer);
+		}
 
 		try {
 			const privateKey  = fs.readFileSync(this.config.fileNamePrivateKey, 'utf8');
@@ -135,7 +141,7 @@ class MicroServiceServer {
 	}
 	// private
 	expressEndPoint(req, res, next) {
-		const paths =  req.path.split("/");
+		const paths = req.path.split("/");
 		let resource = null;
 		let action = null;
 
@@ -147,7 +153,8 @@ class MicroServiceServer {
 			}
 		}
 
-		console.log(`curl -X '${req.method}' ${req.originalUrl} -d '${JSON.stringify(req.body)}' -H 'Authorization: ${req.get("Authorization")}' -H 'Connection: ${req.get("Connection")}' -H 'content-type: ${req.get("content-type")}' -H 'Accept: ${req.get("Accept")}' --compressed`);
+		console.log(`authorization='${req.get("Authorization")}';`);
+		console.log(`curl -X '${req.method}' ${req.protocol}://${req.get("Host")}${req.originalUrl} -d '${JSON.stringify(req.body)}' -H 'Connection: ${req.get("Connection")}' -H 'content-type: ${req.get("content-type")}' -H 'Accept: ${req.get("Accept")}' --compressed -H "Authorization: $authorization"`);
 		//  -H 'Origin: http://localhost:8080' -H 'Sec-Fetch-Site: same-origin' -H 'Sec-Fetch-Mode: cors' -H 'Referer: http://localhost:8080/crud/' -H 'Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
 
 		res.header("Access-Control-Allow-Origin", "*");
@@ -158,9 +165,9 @@ class MicroServiceServer {
 			res.send("Ok");
 			return Promise.resolve();
 		}
-		// TODO : dispensar o HttpRestRequest.urlSearchParamsToJson pois o middleware do Express (qs) já faz a conversão
-//		req.jsonSearchParams = HttpRestRequest.urlSearchParamsToJson(req.query);
-		req.jsonSearchParams = req.query;
+
+		const queryString = req.url.includes("?") == true ? req.url.substring(req.url.lastIndexOf("?")) : "";
+		req.query = Qs.parse(queryString, {ignoreQueryPrefix: true, allowDots: true});
 		return this.onRequest(req, res, next, resource, action).
 		catch(err => {
 			console.error(`[${this.config.appName}] ${req.url} : ${err.message}`);
@@ -257,6 +264,8 @@ class MicroServiceServer {
 		return fsPromises.writeFile("rufs-" + fileName, JSON.stringify(openapi, null, "\t")).
 		then(() => OpenApi.convertRufsToStandart(openapi)).
 		then(standartOpenApi => fsPromises.writeFile(fileName, JSON.stringify(standartOpenApi, null, "\t"))).
+		then(() => OpenApi.convertRufsToStandart(openapi, true)).
+		then(standartOpenApi => fsPromises.writeFile("client-" + fileName, JSON.stringify(standartOpenApi, null, "\t"))).
 		then(() => openapi);
 	}
 

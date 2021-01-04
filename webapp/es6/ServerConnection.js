@@ -159,13 +159,33 @@ class HttpRestRequest {
 class RufsService extends DataStoreItem {
 
 	constructor(name, schema, serverConnection, httpRest) {
-		super(name, schema);
+		super(name, schema, [], serverConnection);
 		this.httpRest = httpRest;
         this.serverConnection = serverConnection;
         this.params = schema;
         let appName = schema.appName != undefined ? schema.appName : "crud";
         this.path = CaseConvert.camelToUnderscore(name);
         this.pathRest = appName + "/rest/" + this.path;
+	}
+
+	process(action, params) {
+/*
+		search:
+			// taxas/search?filter.aceitaparc=N&filterRangeMin.codtaxa=10&filterRangeMax.codtaxa=100
+			this.applyFilter(params.filter, params.filterRangeMin, params.filterRangeMax);
+			this.applySort(params.sort);//params.sort[fieldName].sortType ("desc", "asc");
+			this.paginate(params.pagination);//params.pageSize, params.page
+			this.applyAggregate(params.aggregate);
+*/
+		return super.process(action, params).then(() => {
+			if (action == "search") {
+				if (params.filter != undefined || params.filterRangeMin != undefined || params.filterRangeMax != undefined) {
+					return this.queryRemote(params);
+				}
+			}
+
+			return Promise.resolve();
+		})
 	}
 
 	request(path, method, params, objSend) {

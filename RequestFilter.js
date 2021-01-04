@@ -167,6 +167,9 @@ class RequestFilter {
 		else
 			ret = obj;
 
+		if (queryParameters.filter != undefined) ret.filter = OpenApi.copyFields(service, queryParameters.filter);
+		if (queryParameters.filterRangeMin != undefined) ret.filterRangeMin = OpenApi.copyFields(service, queryParameters.filterRangeMin);
+		if (queryParameters.filterRangeMax != undefined) ret.filterRangeMax = OpenApi.copyFields(service, queryParameters.filterRangeMax);
 		return ret;
    	}
 	// public

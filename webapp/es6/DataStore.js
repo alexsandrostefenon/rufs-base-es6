@@ -399,8 +399,9 @@ class DataStoreManager {
 // differ to DataStore by instance and filter, aggregate, sort and pagination features
 class DataStoreItem extends DataStore {
 
-	constructor(name, schema, list) {
+	constructor(name, schema, list, dataStoreManager) {
 		super(name, schema, list);
+		this.dataStoreManager = dataStoreManager;
 		// instance
 		this.instance = {};
 		this.instanceFlags = {};
@@ -441,7 +442,9 @@ class DataStoreItem extends DataStore {
 		});
 	}
 
-	setValues(obj, enableDefault, dataStoreManager) {
+	setValues(obj, enableDefault) {
+		console.log(`[${this.constructor.name}(${this.title}).setValues()]`, obj);
+
 		const setValue = (fieldName, obj) => {
 			const field = this.properties[fieldName];
 			delete field.externalReferencesStr;
@@ -465,7 +468,7 @@ class DataStoreItem extends DataStore {
 							pos = field.filterResults.indexOf(value);
 							field.externalReferencesStr = field.filterResultsStr[pos];
 						} else {
-							debugger;
+//							debugger;
 							console.error(`[${this.constructor.name}.setValues().setValue(${fieldName})] : field.filterResults is undefined !`);
 //							console.trace();
 						}
@@ -478,6 +481,7 @@ class DataStoreItem extends DataStore {
 			}
 
 			this.instance[fieldName] = OpenApi.copyValue(field, value);
+			return Promise.resolve(value);
 		}
 
 		const getDefaultValue = field => {
@@ -516,15 +520,22 @@ class DataStoreItem extends DataStore {
 
 		let promise;
 
-		if (dataStoreManager != undefined && dataStoreManager.services[this.name] != undefined) {
-			const service = this.serverConnection.getSchema(this.name);
-			promise = dataStoreManager.getDocument(service, obj, false);
+		if (this.dataStoreManager.services[this.name] != undefined) {
+			const service = this.dataStoreManager.getSchema(this.name);
+			promise = this.dataStoreManager.getDocument(service, obj, false);
 		} else {
-			promise = dataStoreManager.getDocument(this, obj, false);
+			promise = this.dataStoreManager.getDocument(this, obj, false);
 		}
 
 		return promise.then(() => {
-			for (let fieldName in this.properties) setValue(fieldName, obj);
+			const next = list => {
+				if (list.length == 0) return obj;
+				const fieldName = list.shift();
+				return setValue(fieldName, obj).then(() => next(list));
+			}
+
+			const fieldNames = Object.keys(this.properties);
+			return next(fieldNames);
 		});
 	}
 // Aggregate Section
@@ -548,15 +559,15 @@ class DataStoreItem extends DataStore {
 		}
 
 		if ((value instanceof Date) == false && (value instanceof Object) == true) {
-			stringBuffer.push(JSON.stringify(value));
+			stringBuffer.push(JSON.stringify(value, null, "\t"));
 			return stringBuffer;
 		}
 
 		if (field.$ref != undefined) {
-			const item = this.serverConnection.getPrimaryKeyForeign(this, fieldName, obj);
+			const item = this.dataStoreManager.getPrimaryKeyForeign(this, fieldName, obj);
 			// TODO : rever se deve mesmo ignorar
 			if (item == undefined) return stringBuffer;
-			const service = this.serverConnection.getSchema(item.table);
+			const service = this.dataStoreManager.getSchema(item.table);
 
 			if (service != undefined) {
 				const primaryKey = item.primaryKey;
@@ -663,13 +674,14 @@ class DataStoreItem extends DataStore {
 
 	clearSort() {
 		this.fieldsSort = {};
+		const properties = this.schemaResponse != undefined ? this.schemaResponse.properties : this.properties;
 
-		for (let fieldName in this.properties) {
+		for (let fieldName in properties) {
 			this.fieldsSort[fieldName] = {};
-			this.fieldsSort[fieldName].type = this.properties[fieldName].type;
-			this.fieldsSort[fieldName].orderIndex = this.properties[fieldName].orderIndex;
-			this.fieldsSort[fieldName].sortType = this.properties[fieldName].sortType;
-			this.fieldsSort[fieldName].tableVisible = this.properties[fieldName].tableVisible;
+			this.fieldsSort[fieldName].type = properties[fieldName].type;
+			this.fieldsSort[fieldName].orderIndex = properties[fieldName].orderIndex;
+			this.fieldsSort[fieldName].sortType = properties[fieldName].sortType;
+			this.fieldsSort[fieldName].tableVisible = properties[fieldName].tableVisible;
 		}
 
 		this.applySort();
@@ -734,6 +746,7 @@ class DataStoreItem extends DataStore {
 	}
 // Filter section
 	paginate(params) {
+		if (params == undefined) params = {};
 		this.pagination.paginate(this.filterResults, params.pageSize, params.page);
 		return Promise.resolve();
 	}
@@ -769,8 +782,8 @@ class DataStoreItem extends DataStore {
 				return Filter.matchObject(expected, candidate, (a,b,fieldName) => fieldName == undefined ? (compareType == 0 ? compareExact(a ,b) : (compareType < 0 ? a < b : a > b)) : false, false);
 			}
 			
-			const item = this.serverConnection.getPrimaryKeyForeign(this.rufsService, fieldName, obj);
-			const service = this.serverConnection.getSchema(item.table);
+			const item = this.dataStoreManager.getPrimaryKeyForeign(this.rufsService, fieldName, obj);
+			const service = this.dataStoreManager.getSchema(item.table);
 			const primaryKey = item.primaryKey;
 			let candidate = service.findOne(primaryKey);
 			let flag = compareFunc(candidate, fieldFilter.filter, 0);

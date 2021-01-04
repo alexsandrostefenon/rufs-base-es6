@@ -232,7 +232,12 @@ class RufsMicroService extends MicroServiceServer {
 		} else {
 			let access = RequestFilter.checkAuthorization(req, resource, action);
 			if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
-			if (resource == "rufsService" && req.method == "GET" && action == "query") return Promise.resolve(Response.ok(OpenApi.getList(this.openapi, req.tokenPayload.roles)));
+
+			if (resource == "rufsService" && req.method == "GET" && action == "query") {
+				const list = OpenApi.getList(OpenApi.convertRufsToStandart(this.openapi, true), true, req.tokenPayload.roles);
+				return Promise.resolve(Response.ok(list));
+			}
+
 			return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
 		}
 	}
@@ -289,6 +294,7 @@ class RufsMicroService extends MicroServiceServer {
 					let it = iterator.next();
 					if (it.done == true) return Promise.resolve();
 					let [name, schema] = it.value;
+					console.log(`${this.constructor.name}.listen().createRufsTables().createTable(${name})`);
 					return rufsServiceDbSync.createTable(name, schema).then(() => createTable(iterator));
 				};
 
@@ -414,6 +420,23 @@ class RufsMicroService extends MicroServiceServer {
 
 }
 
+RufsMicroService.schemaProperties = {
+	// OpenApi / JSON Schema
+	"x-required":{"type": "boolean", "orderIndex": 1, "sortType": "asc"},
+	"type":{"options": ["string", "integer", "boolean", "number", "date-time", "date", "time"]},
+	"properties":{"type": "object", properties: {}},
+	"items":{"type": "object", properties: {}},
+	"maxLength":{"type": "integer"},
+	"format":{},
+	"pattern":{},
+	"x-$ref":{},
+	"enum": {},
+	"x-enumLabels": {},
+	"default":{},
+	"example":{},
+	"description":{}
+};
+
 RufsMicroService.openApiRufs = {
 	components: {
 		schemas: {
@@ -458,9 +481,9 @@ RufsMicroService.openApiRufs = {
 					operationId: {primaryKey: true},
 					path: {},
 					method: {},
-					parameter: {maxLength: 10240},
-					requestBody: {maxLength: 10240},
-					response: {maxLength: 10240}
+					parameter: {"type": "object", "properties": RufsMicroService.schemaProperties},
+					requestBody: {"type": "object", "properties": RufsMicroService.schemaProperties},
+					response: {"type": "object", "properties": RufsMicroService.schemaProperties}
 				},
 				"primaryKeys": ["operationId"],
 				"uniqueKeys": {}
@@ -478,7 +501,7 @@ RufsMicroService.defaultUserAdmin = {
 //	id: 1, 
 	name: "admin", rufsGroupOwner: 1, password: HttpRestRequest.MD5("admin"), path: "rufs_user/search",
 	roles: '{"rufsGroupOwner":{"post":true,"put":true,"delete":true},"rufsUser":{"post":true,"put":true,"delete":true},"rufsGroup":{"post":true,"put":true,"delete":true},"rufsGroupUser":{"post":true,"put":true,"delete":true}}',
-	routes: '[{"path": "/app/rufs_service/:action", "controller": "RufsServiceController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
+	routes: '[{"path": "/app/rufs_service/:action", "controller": "OpenApiOperationObjectController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
 };
 
 RufsMicroService.checkStandalone();

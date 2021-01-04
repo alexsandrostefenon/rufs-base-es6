@@ -77,7 +77,7 @@ class OpenApi {
 	static mergeSchemas(schemaName, schemaNew, schemaOld) {
 		schemaOld = schemaOld != undefined && schemaOld != null ? schemaOld : {};
 //		console.log(`[${this.constructor.name}.updateJsonSchema(schemaName: ${schemaName}, schemaNew.properties: ${schemaNew.properties}, schemaOld.properties: ${schemaOld.properties})]`);
-		const jsonSchemaTypes = ["boolean", "string", "integer", "number", "date-time", "date"];
+		const jsonSchemaTypes = ["boolean", "string", "integer", "number", "date-time", "date", "object", "array"];
 		if (schemaNew.properties == undefined) schemaNew.properties = {};
 		if (schemaOld.properties == undefined) schemaOld.properties = {};
 		let newFields = schemaNew.properties;
@@ -133,6 +133,14 @@ class OpenApi {
 				jsonBuilderValue["$ref"] = field.$ref;
 			}
 
+			if (field.properties != undefined) {
+				jsonBuilderValue["properties"] = field.properties;
+			}
+
+			if (field.items != undefined) {
+				jsonBuilderValue["items"] = field.items;
+			}
+
 			jsonBuilderValue["default"] = field.default;
 			jsonBuilderValue["unique"] = field.unique;
 			jsonBuilderValue["identityGeneration"] = field.identityGeneration;
@@ -148,6 +156,14 @@ class OpenApi {
 			if (jsonBuilderValue["type"] != "number") {
 				delete jsonBuilderValue["precision"];
 				delete jsonBuilderValue["scale"];
+			}
+
+			if (jsonBuilderValue["type"] != "object") {
+				delete jsonBuilderValue["properties"];
+			}
+
+			if (jsonBuilderValue["type"] != "array") {
+				delete jsonBuilderValue["items"];
 			}
 			// habilita os campos PLENAMENTE não SQL
 			jsonBuilderValue.title = field.title;
@@ -207,7 +223,7 @@ class OpenApi {
 		return schema;
 	}
 
-	static convertRufsToStandartSchema(schema) {
+	static convertRufsToStandartSchema(schema, onlyClientUsage) {
 		const standartSchema = {};
 		standartSchema.type = schema.type || "object";
 
@@ -223,6 +239,7 @@ class OpenApi {
 		standartSchema.properties = {};
 
 		for (let [fieldName, field] of Object.entries(schema.properties)) {
+			if (onlyClientUsage == true && field.hiden == true) continue;
 			let property = {};
 			const type = field.type;
 
@@ -242,7 +259,7 @@ class OpenApi {
 					property.$ref = field.$ref;
 				} else {
 					if (field.properties != undefined) {
-						property = this.convertRufsToStandartSchema(field);
+						property = this.convertRufsToStandartSchema(field, onlyClientUsage);
 					} else {
 						console.error(`[${this.constructor.name}.convertRufsToStandartSchema()] : missing "properties" in field ${fieldName} from schema :`, schema);
 					}
@@ -255,7 +272,7 @@ class OpenApi {
 							property.items.$ref = field.items.$ref;
 						} else {
 							if (field.items.properties != undefined) {
-								property.items = this.convertRufsToStandartSchema(field.items);
+								property.items = this.convertRufsToStandartSchema(field.items, onlyClientUsage);
 							} else {
 								console.error(`[${this.constructor.name}.convertRufsToStandartSchema()] : missing "properties" in field ${fieldName} from schema :`, schema);
 							}
@@ -266,13 +283,13 @@ class OpenApi {
 				}
 
 				if (field.hiden) property["x-hiden"] = field.hiden;
-				if (field.internalName) property["x-internalName"] = field.internalName;
+				if (field.internalName && onlyClientUsage != true) property["x-internalName"] = field.internalName;
 			} else {
 				if (field.example) property.example = field.example;
 				if (field.required) property["x-required"] = field.required;
 				if (field.$ref) property["x-$ref"] = field.$ref;
 				if (field.hiden) property["x-hiden"] = field.hiden;
-				if (field.internalName) property["x-internalName"] = field.internalName;
+				if (field.internalName && onlyClientUsage != true) property["x-internalName"] = field.internalName;
 				if (field.identityGeneration) property["x-identityGeneration"] = field.identityGeneration;
 				if (field.notNull) property["x-notNull"] = field.notNull;
 				if (field.updatable) property["x-updatable"] = field.updatable;
@@ -289,10 +306,31 @@ class OpenApi {
 			standartSchema.properties[fieldName] = property;
 		}
 
+		if (standartSchema.required.length == 0) delete standartSchema.required;
 		return standartSchema;
 	}
 
-	static convertRufsToStandart(openapi) {
+	static convertRufsToStandart(openapi, onlyClientUsage) {
+		const standartOpenApi = {};
+		standartOpenApi.openapi = openapi.openapi;
+		standartOpenApi.info = openapi.info;
+		standartOpenApi.servers = openapi.servers;
+
+		standartOpenApi.paths = openapi.paths;
+/*
+		standartOpenApi.paths = {};
+		const methods = ["get", "post", "put", "patch", "delete"];
+
+		for (let [pathName, pathItemObject] of Object.entries(openapi.paths)) {
+			for (let method of methods) {
+				const operationObject = pathItemObject[method];
+				if (operationObject == undefined) continue;
+				if (onlyClientUsage == true && operationObject.operationId.startsWith("zzz") == true) continue;
+				standartOpenApi.paths[pathName] = pathItemObject;
+			}
+		}
+*/
+		standartOpenApi.components = {};
 		const standartSchemas = {};
 
 		for (let [name, schema] of Object.entries(openapi.components.schemas)) {
@@ -301,15 +339,9 @@ class OpenApi {
 				continue;
 			}
 
-			standartSchemas[name] = this.convertRufsToStandartSchema(schema);
+			standartSchemas[name] = this.convertRufsToStandartSchema(schema, onlyClientUsage);
 		}
 
-		const standartOpenApi = {};
-		standartOpenApi.openapi = openapi.openapi;
-		standartOpenApi.info = openapi.info;
-		standartOpenApi.servers = openapi.servers;
-		standartOpenApi.paths = openapi.paths;
-		standartOpenApi.components = {};
 		standartOpenApi.components.schemas = standartSchemas;
 		standartOpenApi.components.parameters = openapi.components.parameters;
 		standartOpenApi.components.requestBodies = {};
@@ -321,7 +353,7 @@ class OpenApi {
 				standartRequestBodyObject.content[mediaTypeName] = {};
 
 				if (mediaTypeObject.schema.properties != undefined) {
-					standartRequestBodyObject.content[mediaTypeName].schema = this.convertRufsToStandartSchema(mediaTypeObject.schema);
+					standartRequestBodyObject.content[mediaTypeName].schema = this.convertRufsToStandartSchema(mediaTypeObject.schema, onlyClientUsage);
 				} else {
 					standartRequestBodyObject.content[mediaTypeName].schema = mediaTypeObject.schema;
 				}
@@ -352,7 +384,7 @@ class OpenApi {
 				delete schema["x-foreignKeys"];
 			}
 
-			if (schema.required == undefined) schema.required = [];
+			if (schema.required == undefined || Array.isArray(schema.required) == false) schema.required = [];
 			const skypes = ["x-$ref", "x-hiden", "x-internalName", "x-identityGeneration", "x-notNull", "x-updatable", "x-scale", "x-precision"];
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
@@ -556,7 +588,7 @@ class OpenApi {
 		return ret;
 	}
 
-	static getList(openapi, roles) {
+	static getList(openapi, onlyClientUsage, roles) {
 		if (openapi == undefined || openapi.components == undefined || openapi.components.schemas == undefined) return [];
 		const list = [];
 
@@ -565,18 +597,180 @@ class OpenApi {
 				if (methods[method] == false) continue;
 				const operationObject = this.getOperationObject(openapi, schemaName, method);
 				if (operationObject == undefined) continue;
+				if (onlyClientUsage == true && operationObject.operationId.startsWith("zzz") == true) continue;
 				const item = {operationId: operationObject.operationId, path: "/" + schemaName, method: method};
 				const parameterSchema = OpenApi.getSchemaFromParameters(openapi, schemaName);
 				const requestBodySchema = OpenApi.getSchemaFromRequestBodies(openapi, schemaName);
 				const responseSchema = OpenApi.getSchemaFromSchemas(openapi, schemaName);
-				if (parameterSchema != undefined) item.parameter = JSON.stringify(parameterSchema.properties);
-				if (requestBodySchema != undefined) item.requestBody = JSON.stringify(requestBodySchema.properties);
-				if (responseSchema != undefined) item.response = JSON.stringify(responseSchema.properties);
+				if (parameterSchema != undefined) item.parameter = parameterSchema.properties;
+				if (requestBodySchema != undefined) item.requestBody = requestBodySchema.properties;
+				if (responseSchema != undefined) item.response = responseSchema.properties;
 				list.push(item);
 			}
 		}
 
 		return list;
+	}
+
+	static objToSchemaAdd(obj, schema, stringMayBeNumber) {
+		if (schema.properties == undefined) schema.properties = {};
+		if (schema.required == undefined) schema.required = [];
+		schema.count = schema.count == undefined ? 1 : schema.count + 1;
+
+		for (let fieldName in obj) {
+			if (fieldName.startsWith("__")) continue;
+			let value = obj[fieldName];
+			if (typeof value == "string") value = value.trim();
+			let property = schema.properties[fieldName];
+
+			if (property == undefined) {
+				property = schema.properties[fieldName] = {};
+				property.mayBeNumber = true;
+				property.mayBeInteger = true;
+				property.mayBeDate = true;
+				property.maxLength = 0;
+				property.default = value;
+
+				if (schema.count == 1) {
+					schema.required.push(fieldName);
+					property.required = true;
+				} else {
+					property.required = false;
+				}
+
+				if (fieldName.startsWith("compet")) {
+					property.pattern = "^20\\d\\d[01]\\d$";
+					property.description = `${fieldName} deve estar no formato yyyymm`;
+				}
+
+				if (fieldName == "oper")
+					property.readOnly = true;
+			}
+
+			if (value == undefined || value == null || (typeof value == "string" && value.length == 0)) {
+				const pos = schema.required.indexOf(fieldName);
+
+				if (pos >= 0) {
+					schema.required.splice(pos, 1);
+					schema.properties[fieldName].required = false;
+				}
+			} else if (typeof value == "string" || typeof value == "number") {
+				if (typeof value == "string") {
+					if (property.maxLength < value.length) property.maxLength = value.length;
+					if (property.mayBeDate == true && ((Date.parse(value) > 0) == false || value.includes("-") == false)) property.mayBeDate = false;
+
+					if (property.mayBeNumber == true) {
+						if (stringMayBeNumber != true || Number.isNaN(Number(value)) == true) {
+							property.mayBeNumber = false;
+							property.mayBeInteger = false;
+						} else {
+							if (property.mayBeInteger == true && value.includes(".") == true) property.mayBeInteger = false;
+						}
+					}
+				} else if (typeof value == "number") {
+					if (property.mayBeInteger == true && Number.isInteger(value) == false) property.mayBeInteger = false;
+				}
+
+				if (property.enum == undefined) {
+					property.enum = [];
+					property.enumCount = [];
+				}
+
+				if (property.enum.length < 10) {
+					const pos = property.enum.indexOf(value);
+
+					if (pos < 0) {
+						property.enum.push(value);
+						property.enumCount.push(1);
+					} else {
+						property.enumCount[pos] = property.enumCount[pos] + 1;
+					}
+				}
+			} else if (Array.isArray(value) == true) {
+				property.type = "array";
+				if (property.items == undefined) property.items = {type:"object", properties:{}, required: []};
+				for (const item of value) this.objToSchemaAdd(item, property.items, stringMayBeNumber);
+			} else {
+				property.type = "object";
+				if (property.required == undefined || Array.isArray(property.required) == false) property.required = [];
+				if (property.properties == undefined) property.properties = {};
+				this.objToSchemaAdd(value, property, stringMayBeNumber);
+			}
+		}
+	}
+
+	static objToSchemaFinalize(schema, options) {
+		const adjustSchemaType = (schema) => {
+			for (let [fieldName, property] of Object.entries(schema.properties)) {
+				if (property.type == "array" && property.items != undefined && property.items.properties != undefined) {
+					adjustSchemaType(property.items);
+					continue;
+				}
+
+				if (property.type == undefined) {
+					if (property.mayBeInteger) 
+						property.type = "integer";
+					else if (property.mayBeNumber)
+						property.type = "number";
+					else if (property.mayBeDate)
+						property.type = "date-time";
+					else
+						property.type = "string";
+				}
+			}
+		}
+
+		const adjustSchemaEnumExampleDefault = (schema, enumMaxLength) => {
+			for (let [fieldName, property] of Object.entries(schema.properties)) {
+				if (property.type == "array" && property.items != undefined && property.items.properties != undefined) {
+					adjustSchemaEnumExampleDefault(property.items, enumMaxLength);
+					continue;
+				}
+
+				if (property.type == "object") {
+					adjustSchemaEnumExampleDefault(property, enumMaxLength);
+					continue;
+				}
+
+				if (property.enumCount != undefined) {
+					if (property.enumCount.length < enumMaxLength) {
+						let posOfMax = 0;
+						let countMax = -1;
+
+						for (let i = 0; i < property.enumCount.length; i++) {
+							const count = property.enumCount[i];
+
+							if (count > countMax) {
+								countMax = count;
+								posOfMax = i;
+							}
+						}
+
+						for (let i = 0; i < property.enum.length; i++) property.enum[i] = OpenApi.copyValue(property, property.enum[i]);
+						property.default = property.enum[posOfMax];
+					} else {
+						property.example = property.enum.join(",");
+						delete property.enum;
+						delete property.enumCount;
+					}
+				}
+
+				if (property.default != undefined) property.default = OpenApi.copyValue(property, property.default);
+			}
+		}
+
+		adjustSchemaType(schema);
+		options = options || {};
+		options.enumMaxLength = options.enumMaxLength || 10
+		adjustSchemaEnumExampleDefault(schema, options.enumMaxLength);
+		schema.primaryKeys = options.primaryKeys || [];
+	}
+
+	static genSchemaFromExamples(list, options) {
+		const schema = {};
+		for (let obj of list) this.objToSchemaAdd(obj, schema);
+		this.objToSchemaFinalize(schema, options);
+		return schema;
 	}
 //{"methods": ["get", "post"], "schemas": responseSchemas, parameterSchemas, requestSchemas}
 	static fillOpenApi(openapi, options) {
@@ -594,6 +788,13 @@ class OpenApi {
 		if (options.parameterSchemas == undefined) options.parameterSchemas = {};
 		if (options.requestSchemas == undefined) options.requestSchemas = {};
 		if (options.responseSchemas == undefined) options.responseSchemas = {};
+		if (options.security == undefined) options.security = {};
+
+		if (options.requestSchemas["login"] == undefined) {
+			const requestSchema = {"type": "object", "properties": {"userId": {type: "string"}, "password": {type: "string"}}, "required": ["userId", "password"]};
+			const responseSchema = {"type": "object", "properties": {"tokenPayload": {type: "string"}}, "required": ["tokenPayload"]};
+			this.fillOpenApi(openapi, {methods: ["post"], requestSchemas: {"login": requestSchema}, schemas: {"login": responseSchema}, security: {"login": [{"basic": []}]}});
+		}
 
 		if (options.schemas == undefined) {
 			options.schemas = openapi.components.schemas;
@@ -608,7 +809,7 @@ class OpenApi {
 
 		for (let [schemaName, schema] of Object.entries(options.schemas)) {
 			if (schema.primaryKeys == undefined) schema.primaryKeys = [];
-			openapi.tags.push({"name": schemaName});
+			if (openapi.tags.find(item => item.name == schemaName) == undefined) openapi.tags.push({"name": schemaName});
 			const referenceToSchema = {"$ref": `#/components/schemas/${schemaName}`};
 			// fill components/requestBody with schemas
 			openapi.components.requestBodies[schemaName] = {"required": true, "content": {}};
@@ -655,6 +856,7 @@ class OpenApi {
 				operationObject.responses = responsesRef;
 				operationObject.tags = [schemaName];
 				operationObject.description = `CRUD ${method} operation over ${schemaName}`;
+				if (options.security[schemaName] != undefined) operationObject.security = options.security[schemaName];
 
 				if (methodsHaveParameters[i] == false || operationObject.parameters != undefined) {
 					pathItemObject[method] = operationObject;
@@ -892,6 +1094,26 @@ class OpenApi {
 
 		return list;
 	}
+
+	static resolveSchema(propertyName, schema, openapi, localSchemas) {
+		if (typeof(schema) == "string") {
+			const schemaName = this.getSchemaName(schema);
+			let field;
+
+			if (localSchemas && localSchemas[schemaName] && localSchemas[schemaName].properties && OpenApi.getPropertyFromSchema(localSchemas[schemaName], propertyName) != undefined)
+				return localSchemas[schemaName];
+
+			if (OpenApi.getPropertyFromSchemas(openapi, schemaName, propertyName) != undefined)
+				return this.getSchemaFromSchemas(openapi, schemaName);
+
+			return OpenApi.getSchemaFromRequestBodies(openapi, schemaName);
+		} else if (schema.properties != undefined) {
+			return schema;
+		}
+
+		return schema;
+	}
+
 	// (service, (service.field|foreignTableName)
 	static getForeignKeyDescription(openapi, schema, fieldName, localSchemas) {
 		let field = undefined;
@@ -955,12 +1177,14 @@ class OpenApi {
 		if (foreignKeyDescription == undefined)
 			return undefined;
 
-		const key = {};
+		let key = {};
 
 		for (let [fieldRef, field] of Object.entries(foreignKeyDescription.fieldsRef)) {
 			key[field] = obj[fieldRef];
 		}
 
+		schema = this.resolveSchema(fieldName, schema, openapi, localSchemas);
+		key = this.copyFields(schema, key);
     	return key;
 	}
 
