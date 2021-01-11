@@ -51,7 +51,7 @@ class RufsServiceDbSync {
 			if (field.type == "string") sqlDefault = ` DEFAULT '${field.default}'`; else sqlDefault = " DEFAULT " + field.default;
 		}
 
-		let sqlNotNull = field.notNull == true ? "NOT NULL" : "";  
+		let sqlNotNull = field.nullable != true ? "NOT NULL" : "";
 		return `${CaseConvert.camelToUnderscore(fieldName)} ${sqlType}${sqlLengthScale} ${sqlDefault} ${sqlNotNull}`;
 	}
 	// TODO : refatorar função genSqlForeignKey(fieldName, field, openapi) para genSqlForeignKey(tableName, openapi)
@@ -382,7 +382,7 @@ class RufsMicroService extends MicroServiceServer {
 					}
 
 					for (let [name, schemaDb] of Object.entries(openApiDb.components.schemas)) {
-						openApiDb.components.schemas[name] = OpenApi.mergeSchemas(name, schemaDb, openapi.components.schemas[name]);
+						openApiDb.components.schemas[name] = OpenApi.mergeSchemas(openapi.components.schemas[name], schemaDb, false, name);
 					}
 
 					OpenApi.fillOpenApi(openApiDb, {requestBodyContentType: this.config.requestBodyContentType});
@@ -423,6 +423,7 @@ class RufsMicroService extends MicroServiceServer {
 RufsMicroService.schemaProperties = {
 	// OpenApi / JSON Schema
 	"x-required":{"type": "boolean", "orderIndex": 1, "sortType": "asc"},
+	"nullable":{"type": "boolean", "orderIndex": 2, "sortType": "asc"},
 	"type":{"options": ["string", "integer", "boolean", "number", "date-time", "date", "time"]},
 	"properties":{"type": "object", properties: {}},
 	"items":{"type": "object", properties: {}},
@@ -443,20 +444,20 @@ RufsMicroService.openApiRufs = {
 			rufsGroupOwner: {
 				properties: {
 					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-					name: {notNull: true, unique:true}
+					name: {nullable: false, unique:true}
 				},
 				"primaryKeys": ["id"]
 			},
 			rufsUser: {
 				properties: {
 					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-					rufsGroupOwner: {type: "integer", notNull: true, $ref: "#/components/schemas/rufsGroupOwner"},
-					name: {maxLength: 32, notNull: true, unique:true},
-					password: {notNull: true},
+					rufsGroupOwner: {type: "integer", nullable: false, $ref: "#/components/schemas/rufsGroupOwner"},
+					name: {maxLength: 32, nullable: false, unique:true},
+					password: {nullable: false},
 					roles: {maxLength: 10240},
 					routes: {maxLength: 10240},
 					path: {},
-					menu: {maxLength: 10240}
+					menu: {maxLength: 10240, nullable: true}
 				},
 				"primaryKeys": ["id"],
 				"uniqueKeys": {}
@@ -464,14 +465,14 @@ RufsMicroService.openApiRufs = {
 			rufsGroup: {
 				properties: {
 					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-					name: {notNull: true, unique:true}
+					name: {nullable: false, unique:true}
 				},
 				"primaryKeys": ["id"]
 			},
 			rufsGroupUser: {
 				properties: {
-					rufsUser: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsUser"},
-					rufsGroup: {type: "integer", primaryKey: true, notNull: true, $ref: "#/components/schemas/rufsGroup"}
+					rufsUser: {type: "integer", primaryKey: true, nullable: false, $ref: "#/components/schemas/rufsUser"},
+					rufsGroup: {type: "integer", primaryKey: true, nullable: false, $ref: "#/components/schemas/rufsGroup"}
 				},
 				"primaryKeys": ["rufsUser", "rufsGroup"],
 				"uniqueKeys": {}

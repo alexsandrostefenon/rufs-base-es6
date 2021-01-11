@@ -29,7 +29,7 @@ class RufsServiceMicroService extends RufsMicroService {
 			}
 			
 			promise.then(schemaChanged => {
-				openapi.components.schemas[name] = OpenApi.mergeSchemas(schemaChanged.name, schemaChanged, schemaOld);
+				openapi.components.schemas[name] = OpenApi.mergeSchemas(schemaOld, schemaChanged, false, schemaChanged.name);
 				return this.storeOpenApi(openapi);
 			});
 		}).

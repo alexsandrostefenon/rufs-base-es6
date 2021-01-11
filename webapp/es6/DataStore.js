@@ -420,8 +420,36 @@ class DataStoreItem extends DataStore {
 		this.pagination = new Pagination(100);
 	}
 
-	isClean() {
-		var ret = angular.equals(this.original, this.instance);
+	isValid() {
+		const properties = this.properties || this.schema.properties;
+		let ret = true;
+
+		for (const [fieldName, property] of Object.entries(properties)) {
+			if (property.essential == true && property.identityGeneration == null) {
+				const value = this.instance[fieldName];
+
+				if (value === undefined || (value === null && property.nullable != true)) {
+					ret = false;
+					console.log(`${this.constructor.name}.isValid() : invalid field content : ${fieldName} : value = ${value}, property :`, property);
+					break;
+				}
+			}
+		}
+
+		return ret;
+	}
+
+	isChanged() {
+		const properties = this.properties || this.schema.properties;
+		let ret = false;
+
+		for (const [fieldName, property] of Object.entries(properties)) {
+			if (this.instance[fieldName] != this.original[fieldName]) {
+				ret = true;
+				break;
+			}
+		}
+
 		return ret;
 	}
 
@@ -438,11 +466,11 @@ class DataStoreItem extends DataStore {
 		return super.clear().then(() => {
 			this.instance = {};
 			this.instanceFlags = {};
-			return this.setValues({}, true); // set default values
+			return this.setValues({}, true, true); // set default values
 		});
 	}
 
-	setValues(obj, enableDefault) {
+	setValues(obj, enableDefault, enableNull) {
 		console.log(`[${this.constructor.name}(${this.title}).setValues()]`, obj);
 
 		const setValue = (fieldName, obj) => {
@@ -509,11 +537,19 @@ class DataStoreItem extends DataStore {
 			obj = {};
 		}
 
-		if (enableDefault) {
+		if (enableDefault == true) {
 			for (let [fieldName, field] of Object.entries(this.properties)) {
 				if (obj[fieldName] == undefined && field.default != undefined) {
 					const value = getDefaultValue(field);
 					if (value != undefined) obj[fieldName] = value;
+				}
+			}
+		}
+
+		if (enableNull == true) {
+			for (let [fieldName, field] of Object.entries(this.properties)) {
+				if (obj[fieldName] == undefined && field.nullable == true) {
+					obj[fieldName] = null;
 				}
 			}
 		}
@@ -547,7 +583,7 @@ class DataStoreItem extends DataStore {
 	buildField(stringBuffer, fieldName, obj) {
 		const value = OpenApi.getValueFromSchema(this, fieldName, obj)
 
-		if (value == undefined || value == null || value === "") {
+		if (value == null || value === "") {
 			return stringBuffer;
 		}
 

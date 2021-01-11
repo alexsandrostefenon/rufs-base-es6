@@ -627,14 +627,17 @@ class DbClientPostgres {
 						field.unique = undefined;
 						field.type = this.rufsTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
 						if (field.type == "date-time") field.format = "date-time";
-						field.notNull = rec.isNullable != "YES" && rec.isNullable != 1; // true,false
+						field.nullable = rec.isNullable == "YES" || rec.isNullable == 1; // true,false
 						field.updatable = rec.isUpdatable == "YES" || rec.isUpdatable == 1; // true,false
 						field.scale = rec.numericScale; // > 0 // 3,2,1
 						field.precision = rec.numericPrecision; // > 0
 						field.default = rec.columnDefault; // 'pt-br'::character varying
 						field.description = rec.description;
 
-						if (field.notNull == true) schema.required.push(fieldName);
+						if (field.nullable != true) {
+							schema.required.push(fieldName);
+							field.essential = true;
+						}
 
 						if (rec.dataType.trim().toLowerCase().startsWith("character") == true)
 							field.maxLength = rec.characterMaximumLength; // > 0 // 255

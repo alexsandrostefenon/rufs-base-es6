@@ -74,7 +74,14 @@ class OpenApi {
 		if (dest.components.responses.Error == undefined) dest.components.responses.Error = source.components.responses.Error;
 	}
 
-	static mergeSchemas(schemaName, schemaNew, schemaOld) {
+	static mergeSchemas(schemaOld, schemaNew, keepOld, schemaName) {
+		const mergeArray = (oldArray, newArray) => {
+			if (newArray == undefined) return oldArray;
+			if (oldArray == undefined) return newArray;
+			for (const item of newArray) if (oldArray.includes(item) == false) oldArray.push(item);
+			return oldArray;
+		};
+
 		schemaOld = schemaOld != undefined && schemaOld != null ? schemaOld : {};
 //		console.log(`[${this.constructor.name}.updateJsonSchema(schemaName: ${schemaName}, schemaNew.properties: ${schemaNew.properties}, schemaOld.properties: ${schemaOld.properties})]`);
 		const jsonSchemaTypes = ["boolean", "string", "integer", "number", "date-time", "date", "object", "array"];
@@ -86,7 +93,8 @@ class OpenApi {
 		if (typeof(newFields) == "string") newFields = Object.entries(JSON.parse(newFields));
 		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
 		if (newFields instanceof Map == false) newFields = Object.entries(newFields);
-		let jsonBuilder = {}; 
+		let jsonBuilder = {};
+		if (keepOld == true) jsonBuilder = oldFields;
 
 		for (let [fieldName, field] of newFields) {
 			if (field.type == undefined) field.type = "string";
@@ -101,7 +109,7 @@ class OpenApi {
 				console.error(`${schemaName} : ${fieldName} : Unknow type : ${field.type}`);
 				continue;
 			}
-			// type (columnDefinition), readOnly, hiden, primaryKey, required (insertable), updatable, default, length, precision, scale 
+			// type (columnDefinition), readOnly, hiden, primaryKey, essential (insertable), updatable, default, length, precision, scale 
 			let jsonBuilderValue = {};
 			// registra conflitos dos valores antigos com os valores detectados do banco de dados
 			jsonBuilderValue["type"] = field.type;
@@ -123,10 +131,10 @@ class OpenApi {
 				jsonBuilderValue["scale"] = field.scale;
 			}
 
-			if (field.notNull == true) {
-				jsonBuilderValue["required"] = true;
+			if (field.nullable == true) {
+				jsonBuilderValue["nullable"] = true;
 			} else {
-				jsonBuilderValue["required"] = field.required;
+				jsonBuilderValue["nullable"] = field.nullable;
 			}
 			//
 			if (field.$ref != undefined) {
@@ -141,13 +149,14 @@ class OpenApi {
 				jsonBuilderValue["items"] = field.items;
 			}
 
-			jsonBuilderValue["default"] = field.default;
-			jsonBuilderValue["unique"] = field.unique;
-			jsonBuilderValue["identityGeneration"] = field.identityGeneration;
-			jsonBuilderValue["isClonable"] = field.isClonable;
-			jsonBuilderValue["hiden"] = field.hiden;
-			jsonBuilderValue["readOnly"] = field.readOnly;
-			jsonBuilderValue["description"] = field.description;
+			if (field.essential != undefined) jsonBuilderValue["essential"] = field.essential;
+			if (field.default != undefined) jsonBuilderValue["default"] = field.default;
+			if (field.unique != undefined) jsonBuilderValue["unique"] = field.unique;
+			if (field.identityGeneration != undefined) jsonBuilderValue["identityGeneration"] = field.identityGeneration;
+			if (field.isClonable != undefined) jsonBuilderValue["isClonable"] = field.isClonable;
+			if (field.hiden != undefined) jsonBuilderValue["hiden"] = field.hiden;
+			if (field.readOnly != undefined) jsonBuilderValue["readOnly"] = field.readOnly;
+			if (field.description != undefined) jsonBuilderValue["description"] = field.description;
 			// oculta tipos incompatíveis
 			if (jsonBuilderValue["type"] != "string") {
 				delete jsonBuilderValue["length"];
@@ -166,26 +175,28 @@ class OpenApi {
 				delete jsonBuilderValue["items"];
 			}
 			// habilita os campos PLENAMENTE não SQL
-			jsonBuilderValue.title = field.title;
-			jsonBuilderValue.document = field.document;
-			jsonBuilderValue.enum = field.enum;
-			jsonBuilderValue.enumLabels = field.enumLabels;
-			jsonBuilderValue.sortType = field.sortType;
-			jsonBuilderValue.orderIndex = field.orderIndex;
-			jsonBuilderValue.tableVisible = field.tableVisible;
-			jsonBuilderValue.shortDescription = field.shortDescription;
+			if (field.title != undefined) jsonBuilderValue.title = field.title;
+			if (field.document != undefined) jsonBuilderValue.document = field.document;
+			if (field.sortType != undefined) jsonBuilderValue.sortType = field.sortType;
+			if (field.orderIndex != undefined) jsonBuilderValue.orderIndex = field.orderIndex;
+			if (field.tableVisible != undefined) jsonBuilderValue.tableVisible = field.tableVisible;
+			if (field.shortDescription != undefined) jsonBuilderValue.shortDescription = field.shortDescription;
+
+			if (field.enum != undefined) jsonBuilderValue.enum = mergeArray(jsonBuilderValue.enum, field.enum);
+			if (field.enumLabels != undefined) jsonBuilderValue.enumLabels = mergeArray(jsonBuilderValue.enumLabels, field.enumLabels);
 			// exceções
 			if (oldFields != undefined && oldFields[fieldName] != undefined) {
 				let fieldOriginal = oldFields[fieldName];
 				// copia do original os campos PLENAMENTE não SQL
 				jsonBuilderValue.title = fieldOriginal.title;
 				jsonBuilderValue.document = fieldOriginal.document;
-				jsonBuilderValue.enum = fieldOriginal.enum;
-				jsonBuilderValue.enumLabels = fieldOriginal.enumLabels;
 				jsonBuilderValue.sortType = fieldOriginal.sortType;
 				jsonBuilderValue.orderIndex = fieldOriginal.orderIndex;
 				jsonBuilderValue.tableVisible = fieldOriginal.tableVisible;
 				jsonBuilderValue.shortDescription = fieldOriginal.shortDescription;
+
+				jsonBuilderValue.enum = mergeArray(jsonBuilderValue.enum, fieldOriginal.enum);
+				jsonBuilderValue.enumLabels = mergeArray(jsonBuilderValue.enumLabels, fieldOriginal.enumLabels);
 				// registra conflitos dos valores antigos com os valores detectados do banco de dados
 				const exceptions = ["service", "isClonable", "hiden", "$ref"];
 
@@ -200,7 +211,7 @@ class OpenApi {
 				if (fieldOriginal.hiden != undefined) jsonBuilderValue.hiden = fieldOriginal.hiden;
 			}
 			// oculta os valores dafault
-			const defaultValues = {updatable: true, maxLength: 255, precision: 9, scale: 3, hiden: false, primaryKey: false, required: false};
+			const defaultValues = {updatable: true, maxLength: 255, precision: 9, scale: 3, hiden: false, primaryKey: false, essential: false};
 
 			for (let subFieldName in defaultValues) {
 				if (jsonBuilderValue[subFieldName] == defaultValues[subFieldName]) {
@@ -216,26 +227,27 @@ class OpenApi {
 		}
 
 		const schema = {};
-		schema.properties = jsonBuilder;
+		schema.type = "object";
+		schema.required = [];
 		schema.primaryKeys = schemaNew.primaryKeys;
 		schema.uniqueKeys = schemaNew.uniqueKeys;
 		schema.foreignKeys = schemaNew.foreignKeys;
+		schema.properties = jsonBuilder;
+		for (const [fieldName, field] of Object.entries(schema.properties)) if (field.essential == true) schema.required.push(fieldName);
 		return schema;
 	}
 
 	static convertRufsToStandartSchema(schema, onlyClientUsage) {
 		const standartSchema = {};
 		standartSchema.type = schema.type || "object";
+		standartSchema.required = schema.required || [];
+		if (schema.primaryKeys && schema.primaryKeys.length > 0) standartSchema["x-primaryKeys"] = schema.primaryKeys;
 
-		if (Array.isArray(schema.required) == true) {
-			standartSchema.required = schema.required;
-		} else {
-			standartSchema.required = [];
+		if (onlyClientUsage != true) {
+			standartSchema["x-uniqueKeys"] = schema.uniqueKeys;
+			standartSchema["x-foreignKeys"] = schema.foreignKeys;
 		}
 
-		if (schema.primaryKeys && schema.primaryKeys.length > 0) standartSchema["x-primaryKeys"] = schema.primaryKeys;
-		standartSchema["x-uniqueKeys"] = schema.uniqueKeys;
-		standartSchema["x-foreignKeys"] = schema.foreignKeys;
 		standartSchema.properties = {};
 
 		for (let [fieldName, field] of Object.entries(schema.properties)) {
@@ -286,21 +298,24 @@ class OpenApi {
 				if (field.internalName && onlyClientUsage != true) property["x-internalName"] = field.internalName;
 			} else {
 				if (field.example) property.example = field.example;
-				if (field.required) property["x-required"] = field.required;
-				if (field.$ref) property["x-$ref"] = field.$ref;
-				if (field.hiden) property["x-hiden"] = field.hiden;
-				if (field.internalName && onlyClientUsage != true) property["x-internalName"] = field.internalName;
-				if (field.identityGeneration) property["x-identityGeneration"] = field.identityGeneration;
-				if (field.notNull) property["x-notNull"] = field.notNull;
+				if (field.nullable) property.nullable = field.nullable;
 				if (field.updatable) property["x-updatable"] = field.updatable;
 				if (field.scale) property["x-scale"] = field.scale;
 				if (field.precision) property["x-precision"] = field.precision;
 				if (field.maxLength) property.maxLength = field.maxLength;
 				if (field.pattern) property.pattern = field.pattern;
 				if (field.format) property.format = field.format;
+
+				if (onlyClientUsage != true) {
+					if (field.essential) property["x-required"] = field.essential;
+					if (field.$ref) property["x-$ref"] = field.$ref;
+					if (field.hiden) property["x-hiden"] = field.hiden;
+					if (field.internalName) property["x-internalName"] = field.internalName;
+					if (field.identityGeneration) property["x-identityGeneration"] = field.identityGeneration;
+				}
 			}
 
-			if (field.required == true && standartSchema.required.indexOf(fieldName) < 0)
+			if (field.essential == true && standartSchema.required.indexOf(fieldName) < 0)
 				standartSchema.required.push(fieldName);
 
 			standartSchema.properties[fieldName] = property;
@@ -384,12 +399,12 @@ class OpenApi {
 				delete schema["x-foreignKeys"];
 			}
 
-			if (schema.required == undefined || Array.isArray(schema.required) == false) schema.required = [];
-			const skypes = ["x-$ref", "x-hiden", "x-internalName", "x-identityGeneration", "x-notNull", "x-updatable", "x-scale", "x-precision"];
+			if (schema.required == undefined) schema.required = [];
+			const skypes = ["x-$ref", "x-hiden", "x-internalName", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				delete field["x-required"];
-				if (schema.required.indexOf(fieldName) >= 0) field.required = true;
+				if (schema.required.indexOf(fieldName) >= 0) field.essential = true;
 
 				if (field.format == "date-time" || field.format == "date") {
 					field.type = field.format;
@@ -549,6 +564,11 @@ class OpenApi {
 		if (property != undefined) {
 			if (obj[propertyName] != undefined) return obj[propertyName];
 			if (property.internalName != undefined && obj[property.internalName] != undefined) return obj[property.internalName];
+
+			if (property.nullable == true) {
+				if (obj[propertyName] === null) return null;
+				if (property.internalName != undefined && obj[property.internalName] === null) return null;
+			}
 		}
 
 		let ret = undefined;
@@ -581,7 +601,11 @@ class OpenApi {
 			} else if (field.type == "object") {
 				ret[fieldName] = this.copyFields(field, value, ignoreHiden);
 			} else {
-				if (value != undefined) ret[fieldName] = this.copyValue(field, value);
+				if (value === null && field.nullable == true) {
+					ret[fieldName] = null;
+				} else if (value != undefined) {
+					ret[fieldName] = this.copyValue(field, value);
+				}
 			}
 		}
 
@@ -589,6 +613,18 @@ class OpenApi {
 	}
 
 	static getList(openapi, onlyClientUsage, roles) {
+		const fillPropertiesRequired = schema => {
+			if (schema.required == undefined) return schema;
+
+			for (const fieldName of schema.required) {
+				if (schema.properties && schema.properties[fieldName] != undefined) {
+					schema.properties[fieldName]["x-required"] = true;
+				}
+			}
+
+			return schema;
+		};
+
 		if (openapi == undefined || openapi.components == undefined || openapi.components.schemas == undefined) return [];
 		const list = [];
 
@@ -603,8 +639,17 @@ class OpenApi {
 				const requestBodySchema = OpenApi.getSchemaFromRequestBodies(openapi, schemaName);
 				const responseSchema = OpenApi.getSchemaFromSchemas(openapi, schemaName);
 				if (parameterSchema != undefined) item.parameter = parameterSchema.properties;
-				if (requestBodySchema != undefined) item.requestBody = requestBodySchema.properties;
-				if (responseSchema != undefined) item.response = responseSchema.properties;
+
+				if (requestBodySchema != undefined) {
+					item.requestBody = requestBodySchema.properties;
+					fillPropertiesRequired(requestBodySchema);
+				}
+
+				if (responseSchema != undefined) {
+					item.response = responseSchema.properties;
+					fillPropertiesRequired(responseSchema);
+				}
+
 				list.push(item);
 			}
 		}
@@ -614,11 +659,9 @@ class OpenApi {
 
 	static objToSchemaAdd(obj, schema, stringMayBeNumber) {
 		if (schema.properties == undefined) schema.properties = {};
-		if (schema.required == undefined) schema.required = [];
 		schema.count = schema.count == undefined ? 1 : schema.count + 1;
 
 		for (let fieldName in obj) {
-			if (fieldName.startsWith("__")) continue;
 			let value = obj[fieldName];
 			if (typeof value == "string") value = value.trim();
 			let property = schema.properties[fieldName];
@@ -628,31 +671,35 @@ class OpenApi {
 				property.mayBeNumber = true;
 				property.mayBeInteger = true;
 				property.mayBeDate = true;
+				property.mayBeEmpty = false;
+				property.nullable = false;
 				property.maxLength = 0;
 				property.default = value;
-
-				if (schema.count == 1) {
-					schema.required.push(fieldName);
-					property.required = true;
-				} else {
-					property.required = false;
-				}
+				property.count = 0;
 
 				if (fieldName.startsWith("compet")) {
 					property.pattern = "^20\\d\\d[01]\\d$";
 					property.description = `${fieldName} deve estar no formato yyyymm`;
 				}
-
-				if (fieldName == "oper")
-					property.readOnly = true;
 			}
 
-			if (value == undefined || value == null || (typeof value == "string" && value.length == 0)) {
-				const pos = schema.required.indexOf(fieldName);
+			property.count++;
 
-				if (pos >= 0) {
-					schema.required.splice(pos, 1);
-					schema.properties[fieldName].required = false;
+			if (value == undefined || value == null) {
+				if (property.nullable == false) {
+					property.nullable = true;
+
+					if (["chv"].includes(fieldName) == true) {
+						console.log(`${this.constructor.name}.objToSchemaAdd() : field ${fieldName} nullable`, obj);
+					}
+				}
+			} else if (typeof value == "string" && value.length == 0) {
+				if (property.mayBeEmpty == false) {
+					property.mayBeEmpty = true;
+
+					if (["chv"].includes(fieldName) == true) {
+						console.log(`${this.constructor.name}.objToSchemaAdd() : field ${fieldName} mayBeEmpty`, obj);
+					}
 				}
 			} else if (typeof value == "string" || typeof value == "number") {
 				if (typeof value == "string") {
@@ -688,11 +735,10 @@ class OpenApi {
 				}
 			} else if (Array.isArray(value) == true) {
 				property.type = "array";
-				if (property.items == undefined) property.items = {type:"object", properties:{}, required: []};
+				if (property.items == undefined) property.items = {type:"object", properties:{}};
 				for (const item of value) this.objToSchemaAdd(item, property.items, stringMayBeNumber);
 			} else {
 				property.type = "object";
-				if (property.required == undefined || Array.isArray(property.required) == false) property.required = [];
 				if (property.properties == undefined) property.properties = {};
 				this.objToSchemaAdd(value, property, stringMayBeNumber);
 			}
@@ -702,6 +748,11 @@ class OpenApi {
 	static objToSchemaFinalize(schema, options) {
 		const adjustSchemaType = (schema) => {
 			for (let [fieldName, property] of Object.entries(schema.properties)) {
+				if (property.type == "object" && property.properties != undefined) {
+					adjustSchemaType(property);
+					continue;
+				}
+
 				if (property.type == "array" && property.items != undefined && property.items.properties != undefined) {
 					adjustSchemaType(property.items);
 					continue;
@@ -716,6 +767,28 @@ class OpenApi {
 						property.type = "date-time";
 					else
 						property.type = "string";
+				}
+			}
+		}
+
+		const adjustRequired = (schema) => {
+			if (schema.required == undefined) schema.required = [];
+
+			for (let [fieldName, property] of Object.entries(schema.properties)) {
+				if (property.type == "object" && property.properties != undefined) {
+					adjustRequired(property);
+					continue;
+				}
+
+				if (property.type == "array" && property.items != undefined && property.items.properties != undefined) {
+					adjustRequired(property.items);
+					property.required = property.items.required;
+					continue;
+				}
+
+				if (property.count == schema.count) {
+					property.essential = true;
+					if (schema.required.includes(fieldName) == false) schema.required.push(fieldName);
 				}
 			}
 		}
@@ -760,6 +833,7 @@ class OpenApi {
 		}
 
 		adjustSchemaType(schema);
+		adjustRequired(schema);
 		options = options || {};
 		options.enumMaxLength = options.enumMaxLength || 10
 		adjustSchemaEnumExampleDefault(schema, options.enumMaxLength);
