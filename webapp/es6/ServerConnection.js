@@ -328,7 +328,7 @@ class ServerConnection extends DataStoreManager {
 		if (RufsServiceClass == undefined) RufsServiceClass = RufsService;
 		if (callbackPartial == undefined) callbackPartial = console.log;
     	this.httpRest = new HttpRestRequest(this.url);
-    	return this.httpRest.request(loginPath, "POST", null, {"userId":user, "password":password}).
+    	return this.httpRest.request(loginPath, "POST", null, {"user":user, "password":password}).
     	then(loginResponse => {
     		this.title = loginResponse.title;
 			this.rufsGroupOwner = loginResponse.rufsGroupOwner;

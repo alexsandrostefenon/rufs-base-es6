@@ -208,9 +208,15 @@ class RufsMicroService extends MicroServiceServer {
 				return ret;
 			}
 
-			const userName = req.body.userId;
-			const loginResponse = {"title": "", "rufsGroupOwner": null, "routes": null, "path": "", "menu": null, "openapi": {}};
-			loginResponse.tokenPayload = {"name": userName, "rufsGroupOwner": null, "groups": [], "roles": {}, "ip": req.ip};
+			const userName = req.body.user;
+			const loginResponse = {};
+			loginResponse.tokenPayload = {"ip": req.ip, "name": userName, "rufsGroupOwner": null, "groups": [], "roles": {}};
+			loginResponse.title = "";
+			loginResponse.menu = null;
+			loginResponse.path = "";
+			loginResponse.routes = null;
+			loginResponse.rufsGroupOwner = null;
+			loginResponse.openapi = {};
 			return this.authenticateUser(userName, req.body.password, loginResponse).
 			then(roles => {
 				if (userName == "admin") {

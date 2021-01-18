@@ -838,10 +838,15 @@ class OpenApi {
 		options.enumMaxLength = options.enumMaxLength || 10
 		adjustSchemaEnumExampleDefault(schema, options.enumMaxLength);
 		schema.primaryKeys = options.primaryKeys || [];
+
+		for (const fieldName of schema.primaryKeys) {
+			if (schema.properties[fieldName] == null)
+				console.error(`${this.constructor.name}.objToSchemaFinalize() : invalid primaryKey : ${fieldName}, allowed values : `, Object.keys(schema.properties));
+		}
 	}
 
 	static genSchemaFromExamples(list, options) {
-		const schema = {};
+		const schema = {type: "object", properties: {}};
 		for (let obj of list) this.objToSchemaAdd(obj, schema);
 		this.objToSchemaFinalize(schema, options);
 		return schema;
@@ -865,7 +870,7 @@ class OpenApi {
 		if (options.security == undefined) options.security = {};
 
 		if (options.requestSchemas["login"] == undefined) {
-			const requestSchema = {"type": "object", "properties": {"userId": {type: "string"}, "password": {type: "string"}}, "required": ["userId", "password"]};
+			const requestSchema = {"type": "object", "properties": {"user": {type: "string"}, "password": {type: "string"}}, "required": ["user", "password"]};
 			const responseSchema = {"type": "object", "properties": {"tokenPayload": {type: "string"}}, "required": ["tokenPayload"]};
 			this.fillOpenApi(openapi, {methods: ["post"], requestSchemas: {"login": requestSchema}, schemas: {"login": responseSchema}, security: {"login": [{"basic": []}]}});
 		}
