@@ -68,6 +68,33 @@ class CaseConvert {
 		return ret;
     }
 
+	static caseAnyToLabel(str) {
+		if (str == undefined) {
+			return "";
+		}
+
+		var ret = "";
+		var nextIsUpper = true;
+
+		for (var i = 0; i < str.length; i++) {
+			var ch = str[i];
+
+			if (nextIsUpper == true) {
+				ret = ret + ch.toUpperCase();
+				nextIsUpper = false;
+			} else if (ch >= 'A' && ch <= 'Z') {
+				ret = ret + ' ' + ch;
+			} else if (ch == '-' || ch == '_') {
+				ret = ret + ' ';
+				nextIsUpper = true;
+			} else {
+				ret = ret + ch;
+			}
+		}
+
+		return ret;
+	}
+
 }
 
 export {CaseConvert}
