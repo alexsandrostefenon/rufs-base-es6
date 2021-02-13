@@ -2,6 +2,7 @@ import pg from "pg";
 import pgCamelCase from "pg-camelcase";
 import Firebird from "node-firebird";
 //import FirebirdNative from "node-firebird";//firebird
+import {OpenApi} from "./webapp/es6/OpenApi.js";
 import {CaseConvert} from "./webapp/es6/CaseConvert.js";
 
 var revertCamelCase = pgCamelCase.inject(pg);
@@ -20,7 +21,12 @@ if (pg.Query != undefined) {
 
 		if (text != undefined) {
 			if (values.length > 0) {
-				const query = text.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]).replace(/"/g, "'"));
+				const query = text.replace(/\$([0-9]+)/g, (m, v) => {
+					const index = parseInt(v) - 1;
+//					console.log(index);
+//					console.log(values[index]);
+					return JSON.stringify(values[index]).replace(/"/g, "'");
+				});
 				console.log(query);
 			} else {
 				console.log(text);
@@ -265,10 +271,14 @@ class SqlAdapterPostgres {
 
 class DbClientPostgres {
 
-	constructor(dbConfig, dbMissingPrimaryKeys) {
+	constructor(dbConfig, options) {
 		this.limitQuery = 1000;
 		this.dbConfig = {};
-		this.dbMissingPrimaryKeys = dbMissingPrimaryKeys || {};
+		this.options = options || {};
+		if (this.options.missingPrimaryKeys == null) this.options.missingPrimaryKeys = {};
+		if (this.options.missingForeignKeys == null) this.options.missingForeignKeys = {};
+		if (this.options.aliasMap == null) this.options.aliasMap = {};
+		this.options.aliasMapExternalToInternal = {};
 
 		if (dbConfig != undefined) {
 			if (dbConfig.host != undefined) this.dbConfig.host = dbConfig.host;
@@ -301,10 +311,10 @@ class DbClientPostgres {
 		return this.client.end();
 	}
 
-	static buildQuery(queryParams, params, orderBy) {
+	buildQuery(queryParams, params, orderBy) {
 		const buildConditions = (queryParams, params, operator, conditions) => {
-			for (let fieldName in queryParams) {
-				let field = queryParams[fieldName];
+			for (let [fieldName, field] of Object.entries(queryParams)) {
+				if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
 				let condition;
 
 				if (Array.isArray(field)) {
@@ -340,7 +350,24 @@ class DbClientPostgres {
 		}
 
 		if (orderBy != undefined && Array.isArray(orderBy) && orderBy.length > 0) {
-			str = str + " ORDER BY " + CaseConvert.camelToUnderscore(orderBy.join(","));
+			const orderByInternal = [];
+//			console.log(orderBy);
+//			console.log(this.options.aliasMapExternalToInternal);
+
+			for (let fieldName of orderBy) {
+				const pos = fieldName.indexOf(" ");
+				let extra = "";
+
+				if (pos >= 0) {
+					extra = fieldName.substring(pos);
+					fieldName = fieldName.substring(0, pos);
+				}
+
+				if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
+				orderByInternal.push(CaseConvert.camelToUnderscore(fieldName) + extra);
+			}
+
+			str = str + " ORDER BY " + orderByInternal.join(",");
 		}
 
 		return str;
@@ -359,6 +386,7 @@ class DbClientPostgres {
 		const strValues = [];
 
 		for (let [fieldName, value] of Object.entries(obj)) {
+			if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
 			strFields.push(CaseConvert.camelToUnderscore(fieldName));
 			strValues.push(params != undefined ? "$" + i : sqlStringify(value));
 
@@ -393,32 +421,55 @@ class DbClientPostgres {
 		});
 	}
 
-	find(tableName, queryParams, orderBy) {
-		tableName = CaseConvert.camelToUnderscore(tableName);
+	find(schemaName, queryParams, orderBy) {
+		const tableName = CaseConvert.camelToUnderscore(schemaName);
 		const params = this.client.enableParams ? [] : undefined;
-		const sqlQuery = DbClientPostgres.buildQuery(queryParams, params, orderBy);
-		const sql = `SELECT * FROM ${tableName} ${sqlQuery} LIMIT ${this.limitQuery}`;
+		const sqlQuery = this.buildQuery(queryParams, params, orderBy);
+		let fieldsOut = "*";
+
+		if (this.openapi != null) {
+			const schema = OpenApi.getSchemaFromSchemas(this.openapi, schemaName);
+
+			if (schema != null && schema.properties != null) {
+				let count = 0;
+				const names = [];
+
+				for (let [fieldName, property] of Object.entries(schema.properties)) {
+					if (property.internalName != null) {
+						count++;
+						names.push(CaseConvert.camelToUnderscore(property.internalName) + " as " + CaseConvert.camelToUnderscore(fieldName));
+					} else {
+						names.push(CaseConvert.camelToUnderscore(fieldName));
+					}
+				}
+
+				if (count > 0) fieldsOut = names.join(",");
+			}
+		}
+
+		const sql = `SELECT ${fieldsOut} FROM ${tableName} ${sqlQuery} LIMIT ${this.limitQuery}`;
 		console.log(sql);
-		return this.client.query(sql, params).then(result => result.rows);
+		return this.client.query(sql, params).then(result => {
+//			if (result.rows.length > 0) console.log(result.rows[0]);
+			return result.rows;
+		});
 	}
 
 	findOne(tableName, queryParams) {
-		tableName = CaseConvert.camelToUnderscore(tableName);
-		const params = this.client.enableParams ? [] : undefined;
-		const sql = "SELECT * FROM " + tableName + DbClientPostgres.buildQuery(queryParams, params);
-		return this.client.query(sql, params).then(result => {
-			if (result.rowCount == 0) {
-				throw new Error(`NoResultException for ${tableName} : ${sql} : ${params}`);
+		return this.find(tableName, queryParams).
+		then(rows => {
+			if (rows.length == 0) {
+				throw new Error(`NoResultException for ${tableName} : ${JSON.stringify(queryParams)}`);
 			}
 
-			return result.rows[0]
+			return rows[0]
 		});
 	}
 
 	findMax(tableName, fieldName, queryParams) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
 		const params = this.client.enableParams ? [] : undefined;
-		const sql = "SELECT MAX(" + fieldName + ") FROM " + tableName + DbClientPostgres.buildQuery(queryParams, params);
+		const sql = "SELECT MAX(" + fieldName + ") FROM " + tableName + this.buildQuery(queryParams, params);
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
 				throw new Error("NoResultException");
@@ -450,7 +501,7 @@ class DbClientPostgres {
 			}
 		}
 
-		const sql = `UPDATE ${tableName} SET ${list.join(",")}` + DbClientPostgres.buildQuery(primaryKey, params) + " RETURNING *";
+		const sql = `UPDATE ${tableName} SET ${list.join(",")}` + this.buildQuery(primaryKey, params) + " RETURNING *";
 		
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
@@ -468,7 +519,7 @@ class DbClientPostgres {
 	deleteOne(tableName, primaryKey) {
 		tableName = CaseConvert.camelToUnderscore(tableName);
 		const params = this.client.enableParams ? [] : undefined;
-		const sql = "DELETE FROM " + tableName + DbClientPostgres.buildQuery(primaryKey, params) + " RETURNING *";
+		const sql = "DELETE FROM " + tableName + this.buildQuery(primaryKey, params) + " RETURNING *";
 		return this.client.query(sql, params).then(result => {
 			if (result.rowCount == 0) {
 				throw new Error("NoResultException");
@@ -479,6 +530,28 @@ class DbClientPostgres {
 	}
 
 	getOpenApi() {
+		const getFieldName = (columnName, field) => {
+			let fieldName = CaseConvert.underscoreToCamel(columnName.trim().toLowerCase(), false);
+			const fieldNameLowerCase = fieldName.toLowerCase();
+
+			for (let [aliasMapName, value] of Object.entries(this.options.aliasMap)) {
+				if (aliasMapName.toLowerCase() == fieldNameLowerCase) {
+					if (field != null) {
+						field.internalName = fieldName;
+
+						if (value != null && value.length > 0) {
+							this.options.aliasMapExternalToInternal[value] = fieldName;
+						}
+					}
+
+					fieldName = value != null && value.length > 0 ? value : aliasMapName;
+					break;
+				}
+			}
+
+			return fieldName;
+		}
+
 		const setRef = (schema, fieldName, tableRef) => {
 			const field = schema.properties[fieldName];
 
@@ -514,13 +587,11 @@ class DbClientPostgres {
 									const foreignKey = {fields: [], fieldsRef: []};
 
 									for (let item of list) {
-										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
-										foreignKey.fields.push(columnName);
+										foreignKey.fields.push(getFieldName(item.columnName));
 									}
 
 									for (let itemRef of listRef) {
-										const columnName = CaseConvert.underscoreToCamel(itemRef.columnName.trim().toLowerCase(), false);
-										foreignKey.fieldsRef.push(columnName);
+										foreignKey.fieldsRef.push(getFieldName(itemRef.columnName));
 										const tableRef = CaseConvert.underscoreToCamel(itemRef.tableName.trim().toLowerCase(), false);
 
 										if (foreignKey.tableRef == undefined || foreignKey.tableRef == tableRef)
@@ -548,14 +619,13 @@ class DbClientPostgres {
 									schema.uniqueKeys[name] = [];
 
 									for (let item of list) {
-										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
-										schema.uniqueKeys[name].push(columnName);
+										schema.uniqueKeys[name].push(getFieldName(item.columnName));
 									}
 								} else if (constraint.constraintType.toString().trim() == "PRIMARY KEY") {
 									for (let item of list) {
-										const columnName = CaseConvert.underscoreToCamel(item.columnName.trim().toLowerCase(), false);
-										schema.primaryKeys.push(columnName);
-										if (schema.required.indexOf(columnName) < 0) schema.required.push(columnName);
+										const fieldName = getFieldName(item.columnName);
+										schema.primaryKeys.push(fieldName);
+										if (schema.required.indexOf(fieldName) < 0) schema.required.push(fieldName);
 									}
 								}
 							}
@@ -577,10 +647,16 @@ class DbClientPostgres {
 								}
 							}
 
-							if (this.dbMissingPrimaryKeys != undefined && Array.isArray(this.dbMissingPrimaryKeys[schemaName])) {
-								for (const columnName of this.dbMissingPrimaryKeys[schemaName]) {
+							if (this.options.missingPrimaryKeys != null && Array.isArray(this.options.missingPrimaryKeys[schemaName]) == true) {
+								for (const columnName of this.options.missingPrimaryKeys[schemaName]) {
 									schema.primaryKeys.push(columnName);
 									if (schema.required.indexOf(columnName) < 0) schema.required.push(columnName);
+								}
+							}
+
+							if (this.options.missingForeignKeys != null && this.options.missingForeignKeys[schemaName] != null) {
+								for (let [fieldName, tableRef] of Object.entries(this.options.missingForeignKeys[schemaName])) {
+									setRef(schema, fieldName, tableRef);
 								}
 							}
 
@@ -622,8 +698,8 @@ class DbClientPostgres {
 
 						if (schema.required == undefined) schema.required = [];
 
-						const fieldName = CaseConvert.underscoreToCamel(rec.columnName.trim().toLowerCase(), false);
 						let field = {}
+						const fieldName = getFieldName(rec.columnName, field);
 						field.unique = undefined;
 						field.type = this.rufsTypes[typeIndex]; // LocalDateTime,ZonedDateTime,Date,Time
 						if (field.type == "date-time") field.format = "date-time";
@@ -668,7 +744,8 @@ class DbClientPostgres {
 		};
 
 		return processColumns().
-		then(openapi => processConstraints(openapi));
+		then(openapi => processConstraints(openapi)).
+		then(openapi => this.openapi = openapi);
 	}
 
 }

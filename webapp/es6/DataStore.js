@@ -391,7 +391,7 @@ class DataStoreManager {
 	// primaryKeyForeign = {rufsGroupOwner: 2, id: 1}, fieldName = "request"
 	// foreignKey = {rufsGroupOwner: 2, request: 1}
 	getForeignKey(schema, fieldName, obj) {
-		if (schema.name != undefined && OpenApi.getSchemaFromSchemas(this.openapi, schema.name) != undefined) schema = schema.name;
+//		if (schema.name != undefined && OpenApi.getSchemaFromSchemas(this.openapi, schema.name) != undefined) schema = schema.name;
 		return OpenApi.getForeignKey(this.openapi, schema, fieldName, obj, this.services);
 	}
 
@@ -480,6 +480,14 @@ class DataStoreItem extends DataStore {
 
 			if (value != undefined) {
 				if (field.$ref != undefined) {
+					if (field.type != "object" && (typeof(value) != "string" && typeof(value) != "number" && Array.isArray(value) == false)) {
+						const foreignKey = this.dataStoreManager.getForeignKey(this, fieldName, value);
+
+						if (foreignKey != null) {
+							obj[fieldName] = value = foreignKey[fieldName];
+						}
+					}
+
 					field.externalReferencesStr = this.buildFieldStr(fieldName, obj);
 				} else if (field.flags != undefined && field.flags != null) {
 					// field.flags : String[], vm.instanceFlags[fieldName] : Boolean[]
@@ -599,10 +607,9 @@ class DataStoreItem extends DataStore {
 			return stringBuffer;
 		}
 
-		if (field.$ref != undefined) {
-			const item = this.dataStoreManager.getPrimaryKeyForeign(this, fieldName, obj);
-			// TODO : rever se deve mesmo ignorar
-			if (item == undefined) return stringBuffer;
+		const item = field.$ref != null ? this.dataStoreManager.getPrimaryKeyForeign(this, fieldName, obj) : null;
+
+		if (item != null && item.isUniqueKey == true) {
 			const service = this.dataStoreManager.getSchema(item.table);
 
 			if (service != undefined) {

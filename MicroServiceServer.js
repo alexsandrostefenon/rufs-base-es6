@@ -56,7 +56,9 @@ class MicroServiceServer {
 		config.dbConfig.password = preferenceConfig.dbConfig.password || MicroServiceServer.getArg("db-password");//"123456", //env var: PGPASSWORD
 		config.dbConfig.limitQuery = preferenceConfig.dbConfig.limitQuery || MicroServiceServer.getArg("db-limit-query");
 
-		config.dbMissingPrimaryKeys = preferenceConfig.dbMissingPrimaryKeys || MicroServiceServer.getArg("db-missing-primary-keys");
+		config.dbMissingPrimaryKeys = preferenceConfig.dbMissingPrimaryKeys;
+		config.dbMissingForeignKeys = preferenceConfig.dbMissingForeignKeys;
+		config.aliasMap = preferenceConfig.aliasMap;
 
 		config.appName = preferenceConfig.appName || MicroServiceServer.getArg("name", "");
 		config.port = preferenceConfig.port || MicroServiceServer.getArg("port", "9080");

@@ -171,7 +171,7 @@ class RequestFilter {
 		if (queryParameters.filterRangeMin != undefined) ret.filterRangeMin = OpenApi.copyFields(service, queryParameters.filterRangeMin);
 		if (queryParameters.filterRangeMax != undefined) ret.filterRangeMax = OpenApi.copyFields(service, queryParameters.filterRangeMax);
 		return ret;
-   	}
+	}
 	// public
 	static processQuery(tokenData, queryParams, entityManager, serviceName) {
 		const fields = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams);

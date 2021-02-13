@@ -149,6 +149,7 @@ class OpenApi {
 				jsonBuilderValue["items"] = field.items;
 			}
 
+			if (field.internalName != null) jsonBuilderValue["internalName"] = field.internalName;
 			if (field.essential != undefined) jsonBuilderValue["essential"] = field.essential;
 			if (field.default != undefined) jsonBuilderValue["default"] = field.default;
 			if (field.unique != undefined) jsonBuilderValue["unique"] = field.unique;
@@ -305,10 +306,10 @@ class OpenApi {
 				if (field.maxLength) property.maxLength = field.maxLength;
 				if (field.pattern) property.pattern = field.pattern;
 				if (field.format) property.format = field.format;
+				if (field.$ref) property["x-$ref"] = field.$ref;
 
 				if (onlyClientUsage != true) {
 					if (field.essential) property["x-required"] = field.essential;
-					if (field.$ref) property["x-$ref"] = field.$ref;
 					if (field.hiden) property["x-hiden"] = field.hiden;
 					if (field.internalName) property["x-internalName"] = field.internalName;
 					if (field.identityGeneration) property["x-identityGeneration"] = field.identityGeneration;
@@ -612,7 +613,30 @@ class OpenApi {
 		return ret;
 	}
 
-	static getList(openapi, onlyClientUsage, roles) {
+	static getList(Qs, openapi, onlyClientUsage, roles) {
+    	const process = properties => {
+			for (let [fieldName, property] of Object.entries(properties)) {
+    			const $ref = property["x-$ref"];
+
+				if ($ref != null) {
+					let pos = $ref.indexOf("?");
+					const queryObj = {"filter": {}};
+
+					if (pos >= 0 && Qs != null) {
+						const params = Qs.parse($ref.substring(pos), {ignoreQueryPrefix: true, allowDots: true});
+
+						for (let [name, value] of Object.entries(params)) {
+							if (value != null && value.startsWith("*") == true) queryObj.filter[name] = value.substring(1);
+						}
+					}
+
+					const schemaName = OpenApi.getSchemaName($ref);
+					const href = "#!/app/" + schemaName + "/search?" + Qs.stringify(queryObj, {allowDots: true});
+					property["x-$ref"] = href;
+    			}
+    		}
+    	}
+
 		const fillPropertiesRequired = schema => {
 			if (schema.required == undefined) return schema;
 
@@ -642,11 +666,13 @@ class OpenApi {
 
 				if (requestBodySchema != undefined) {
 					item.requestBody = requestBodySchema.properties;
+					process(item.requestBody);
 					fillPropertiesRequired(requestBodySchema);
 				}
 
 				if (responseSchema != undefined) {
 					item.response = responseSchema.properties;
+					process(item.response);
 					fillPropertiesRequired(responseSchema);
 				}
 
@@ -1221,18 +1247,34 @@ class OpenApi {
 			return undefined;
 		}
 
+		let pos = field.$ref.indexOf("?");
+
+		if (pos >= 0 && Qs != undefined) {
+			const fieldsRef = Qs.parse(field.$ref.substring(pos), {ignoreQueryPrefix: true, allowDots: true});
+			const entries = Object.entries(fieldsRef);
+			let isUniqueKey = entries.length == serviceRef.primaryKeys.length;
+
+			if (isUniqueKey == true) {
+				for (let [fieldName, fieldNameMap] of entries) {
+					if (serviceRef.primaryKeys.indexOf(fieldName) < 0) {
+						isUniqueKey = false;
+						break;
+					}
+				}
+			}
+
+			const ret = {tableRef: field.$ref, fieldsRef: fieldsRef, isUniqueKey: isUniqueKey};
+//			console.log(`[${this.constructor.name}.getForeignKeyDescription(${fieldName})] : ret :`, ret);
+			return ret;
+		}
+
 		const fieldsRef = {};
+
 		for (const primaryKey of serviceRef.primaryKeys) fieldsRef[primaryKey] = null;
 
 		if (Object.keys(fieldsRef).length == 1) {
 			for (const primaryKey in fieldsRef) fieldsRef[primaryKey] = fieldName;
 		} else if (Object.keys(fieldsRef).length > 1) {
-			let pos = field.$ref.indexOf("?");
-
-			if (pos >= 0 && Qs != undefined) {
-				const primaryKeys = Qs.parse(field.$ref.substring(pos), {ignoreQueryPrefix: true, allowDots: true});
-				for (const primaryKey in primaryKeys) fieldsRef[primaryKey] = primaryKeys[primaryKey];
-			}
 
 			for (let fieldRef in fieldsRef) {
 				if (fieldsRef[fieldRef] == null && OpenApi.getProperty(openapi, field.$ref, fieldRef, localSchemas) != undefined) {
@@ -1247,10 +1289,15 @@ class OpenApi {
 			console.error(`[${this.constructor.name}.getForeignKeyDescription(${schemaName}, ${fieldName})] : don't pair with key ${fieldRef} :`, fieldsRef);
 		}
 		// TODO : alterar para {fieldsRef: {"key1": field1, "key2": field2, "key3": getQueryString(field.$ref, "key3"), "key4": getQueryString(field.$ref, "key4")}}
-		return {tableRef: field.$ref, fieldsRef: fieldsRef};
+		const ret = {tableRef: field.$ref, fieldsRef: fieldsRef, isUniqueKey: true};
+//		console.log(`[${this.constructor.name}.getForeignKeyDescription(${fieldName})] : ret :`, ret);
+		return ret;
 	}
 
 	static getForeignKey(openapi, schema, fieldName, obj, localSchemas) {
+		if (fieldName == "CpfCnpj" && obj.cpfCnpj != null)
+			console.log(`[${this.constructor.name}.getPrimaryKeyForeign(${fieldName})] : obj :`, obj);
+
 		const foreignKeyDescription = OpenApi.getForeignKeyDescription(openapi, schema, fieldName, localSchemas);
 
 		if (foreignKeyDescription == undefined)
@@ -1264,7 +1311,8 @@ class OpenApi {
 
 		schema = this.resolveSchema(fieldName, schema, openapi, localSchemas);
 		key = this.copyFields(schema, key);
-    	return key;
+		console.log(`[${this.constructor.name}.getForeignKey(${fieldName})] : obj :`, obj, "key :", key);
+		return key;
 	}
 
 	static getPrimaryKeyForeign(openapi, schema, fieldName, obj, localSchemas) {
@@ -1285,7 +1333,7 @@ class OpenApi {
 				return undefined;
 
 			const key = {};
-			const ret = {"table": foreignKeyDescription.tableRef, "primaryKey": key, "valid": false};
+			const ret = {"table": foreignKeyDescription.tableRef, "primaryKey": key, "valid": false, "isUniqueKey": foreignKeyDescription.isUniqueKey};
 			if (obj == undefined || obj == null) return ret;
 			let valid = true;
 
@@ -1307,6 +1355,7 @@ class OpenApi {
 			}
 
 			ret.valid = valid;
+//			if (fieldName == "CpfCnpj" && foreignKeyDescription.tableRef.indexOf("?") >= 0) console.log(`[${this.constructor.name}.getPrimaryKeyForeign(${fieldName})] : obj :`, obj, "ret :", ret);
 			return ret;
 		}
 

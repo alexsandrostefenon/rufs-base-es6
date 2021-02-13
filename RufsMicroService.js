@@ -1,5 +1,6 @@
 import fs from "fs";
 import jwt from "jsonwebtoken";
+import Qs from "qs";
 import {DbClientPostgres} from "./dbClientPostgres.js";
 import {RequestFilter} from "./RequestFilter.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
@@ -157,7 +158,7 @@ class RufsMicroService extends MicroServiceServer {
 		super(config);
 		this.config.checkRufsTables = checkRufsTables || false;
 		this.config.migrationPath = config.migrationPath || MicroServiceServer.getArg("migration-path", `./rufs-${config.appName}-es6/sql`);
-		this.entityManager = new DbClientPostgres(this.config.dbConfig, this.config.dbMissingPrimaryKeys);
+		this.entityManager = new DbClientPostgres(this.config.dbConfig, {missingPrimaryKeys: this.config.dbMissingPrimaryKeys, missingForeignKeys: this.config.dbMissingForeignKeys, aliasMap: this.config.aliasMap});
 	}
 
 	authenticateUser(userName, userPassword, loginResponse) {
@@ -240,7 +241,7 @@ class RufsMicroService extends MicroServiceServer {
 			if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
 
 			if (resource == "rufsService" && req.method == "GET" && action == "query") {
-				const list = OpenApi.getList(OpenApi.convertRufsToStandart(this.openapi, true), true, req.tokenPayload.roles);
+				const list = OpenApi.getList(Qs, OpenApi.convertRufsToStandart(this.openapi, true), true, req.tokenPayload.roles);
 				return Promise.resolve(Response.ok(list));
 			}
 
@@ -436,8 +437,8 @@ RufsMicroService.schemaProperties = {
 	"maxLength":{"type": "integer"},
 	"format":{},
 	"pattern":{},
-	"x-$ref":{},
 	"enum": {},
+	"x-$ref":{},
 	"x-enumLabels": {},
 	"default":{},
 	"example":{},

@@ -31,6 +31,7 @@ class CaseConvert {
     }
 
     static underscoreToCamel(str, isFirstUpper) {
+    	const regExp = /[a-zA-Z]/;
 		var ret = "";
 		var nextIsUpper = false;
 
@@ -48,7 +49,7 @@ class CaseConvert {
 //				ch = ch.toLowerCase();
 			}
 
-			if (ch == '_') {
+			if (ch == '_' && str.length > i && regExp.test(str[i+1]) == true) {
 				nextIsUpper = true;
 			} else {
 				ret = ret + ch;
