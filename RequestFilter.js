@@ -195,8 +195,8 @@ class RequestFilter {
 	}
 	// public
 	static checkAuthorization(req, serviceName, uriPath) {
-    	const getRolesUnMask = roles => {
-    		const ret = {};
+		const getRolesUnMask = roles => {
+			const ret = {};
 
 			for (let [schemaName, mask] of Object.entries(roles)) {
 				let role = {};
@@ -208,10 +208,15 @@ class RequestFilter {
 				ret[schemaName] = role;
 			}
 
-    		return ret;
-    	}
+			return ret;
+		}
 
-		req.tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
+		try {
+			req.tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
+		} catch (err) {
+			return false;
+		}
+
 		req.tokenPayload.roles = getRolesUnMask(req.tokenPayload.roles);
 
 		let access = false;
