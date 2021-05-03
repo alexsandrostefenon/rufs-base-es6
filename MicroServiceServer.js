@@ -55,6 +55,7 @@ class MicroServiceServer {
 		config.dbConfig.user = preferenceConfig.dbConfig.user || MicroServiceServer.getArg("db-user");//"development", //env var: PGUSER
 		config.dbConfig.password = preferenceConfig.dbConfig.password || MicroServiceServer.getArg("db-password");//"123456", //env var: PGPASSWORD
 		config.dbConfig.limitQuery = preferenceConfig.dbConfig.limitQuery || MicroServiceServer.getArg("db-limit-query");
+		config.dbConfig.limitQueryExceptions = preferenceConfig.dbConfig.limitQueryExceptions || MicroServiceServer.getArg("db-limit-query-exceptions");
 
 		config.dbMissingPrimaryKeys = preferenceConfig.dbMissingPrimaryKeys;
 		config.dbMissingForeignKeys = preferenceConfig.dbMissingForeignKeys;

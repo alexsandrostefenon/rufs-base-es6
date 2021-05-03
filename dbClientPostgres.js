@@ -27,9 +27,9 @@ if (pg.Query != undefined) {
 //					console.log(values[index]);
 					return JSON.stringify(values[index]).replace(/"/g, "'");
 				});
-				console.log(query);
+//				console.log(query);
 			} else {
-				console.log(text);
+//				console.log(text);
 			}
 		}
 
@@ -273,6 +273,7 @@ class DbClientPostgres {
 
 	constructor(dbConfig, options) {
 		this.limitQuery = 1000;
+		this.limitQueryExceptions = [];
 		this.dbConfig = {};
 		this.options = options || {};
 		if (this.options.missingPrimaryKeys == null) this.options.missingPrimaryKeys = {};
@@ -289,6 +290,7 @@ class DbClientPostgres {
 			// const connectionString = 'postgresql://dbuser:secretpassword@database.server.com:3211/mydb'
 			if (dbConfig.connectionString != undefined) this.dbConfig.connectionString = dbConfig.connectionString;
 			if (dbConfig.limitQuery != undefined) this.limitQuery = dbConfig.limitQuery;
+			if (dbConfig.limitQueryExceptions != undefined) this.limitQueryExceptions = Array.isArray(dbConfig.limitQueryExceptions) == true ? dbConfig.limitQueryExceptions : dbConfig.limitQueryExceptions.split(",");
 		}
 		//connect to our database
 		//env var: PGHOST,PGPORT,PGDATABASE,PGUSER,PGPASSWORD
@@ -447,7 +449,8 @@ class DbClientPostgres {
 			}
 		}
 
-		const sql = `SELECT ${fieldsOut} FROM ${tableName} ${sqlQuery} LIMIT ${this.limitQuery}`;
+		const sqlLimit = this.limitQueryExceptions.includes(tableName) == true ? "" : `LIMIT ${this.limitQuery}`;
+		const sql = `SELECT ${fieldsOut} FROM ${tableName} ${sqlQuery} ${sqlLimit}`;
 		console.log(sql);
 		return this.client.query(sql, params).then(result => {
 //			if (result.rows.length > 0) console.log(result.rows[0]);
