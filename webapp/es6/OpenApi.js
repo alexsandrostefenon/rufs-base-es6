@@ -785,11 +785,11 @@ class OpenApi {
 				}
 
 				if (property.type == undefined) {
-					if (property.mayBeInteger) 
+					if (property.mayBeInteger && property.maxLength > 0) 
 						property.type = "integer";
-					else if (property.mayBeNumber)
+					else if (property.mayBeNumber && property.maxLength > 0)
 						property.type = "number";
-					else if (property.mayBeDate)
+					else if (property.mayBeDate && property.maxLength > 0)
 						property.type = "date-time";
 					else
 						property.type = "string";
@@ -815,6 +815,7 @@ class OpenApi {
 				if (property.count == schema.count) {
 					property.essential = true;
 					if (schema.required.includes(fieldName) == false) schema.required.push(fieldName);
+    				if (property.nullable == false && property.mayBeEmpty == true) property.nullable = true;
 				}
 			}
 		}
