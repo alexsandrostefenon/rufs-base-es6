@@ -741,6 +741,8 @@ class OpenApi {
 						}
 					}
 				} else if (typeof value == "number") {
+					const strLen = value.toString().length;
+					if (property.maxLength < strLen) property.maxLength = strLen;
 					if (property.mayBeInteger == true && Number.isInteger(value) == false) property.mayBeInteger = false;
 				}
 
@@ -813,8 +815,11 @@ class OpenApi {
 				}
 
 				if (property.count == schema.count) {
-					property.essential = true;
-					if (schema.required.includes(fieldName) == false) schema.required.push(fieldName);
+					if (property.essential == null) {
+						property.essential = true;
+						if (schema.required.includes(fieldName) == false) schema.required.push(fieldName);
+					}
+
     				if (property.nullable == false && property.mayBeEmpty == true) property.nullable = true;
 				}
 			}
