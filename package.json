@@ -14,7 +14,7 @@
     "pg": "^7.14.0",
     "jsonwebtoken": "^8.5.1",
     "redbird": "^0.9.1",
-    "node-firebird": "^0.8.9",
+    "node-firebird": "^0.9.9",
     "pg-camelcase": "^0.0.3"
   }
 }

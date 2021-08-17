@@ -4,9 +4,6 @@ import {exec} from "child_process";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 
 const fsPromises = fs.promises;
-// TODO : only until nodejs needs custom-loader.mjs to resolve import(module)
-import pg from "pg";
-import { runInNewContext } from "vm";
 
 class RufsProxy {
 

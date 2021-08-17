@@ -41,7 +41,7 @@ class SqlAdapterNodeFirebird {
 
 	constructor(config) {
 		this.config = config;
-		this.enableParams = false;
+		this.enableParams = true;
 		this.sqlInfoTables =
 `
 SELECT
@@ -138,10 +138,35 @@ INNER JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME = s.RDB$INDEX_NAME
 ORDER BY constraint_name,ordinal_position
 		`;
 	}
+/*
+sudo su -
+echo 'AuthServer = Srp, Legacy_Auth' >> /etc/firebird/3.0/firebird.conf;
+echo 'WireCrypt = Disabled' >> /etc/firebird/3.0/firebird.conf;
+echo 'UserManager = Legacy_UserManager' >> /etc/firebird/3.0/firebird.conf;
+exit;
 
+sudo cp *.fdb /var/lib/firebird/3.0/data/;
+sudo chown firebird:firebird /var/lib/firebird/3.0/data/*.fdb;
+sudo chmod ugo+rw /var/lib/firebird/3.0/data/*.fdb;
+
+sudo systemctl restart firebird3.0
+sudo tail -s 1 -f /var/log/firebird/firebird3.0.log
+
+sed data.fcols.push(lowercase_keys ? underscoreToCamel(output[i].alias.toLowerCase()) : output[i].alias);
+
+*/
 	connect() {
 		return new Promise((resolve, reject) => {
-			Firebird.attach({database: "/var/CLIPP-3.fdb", user: "SYSDBA", password: "masterkey"}, (err, db) => {
+			const options = {
+				host: this.config.host, 
+				port: Number.parseInt(this.config.port), 
+				database: this.config.database, 
+				user: this.config.user, 
+				lowercase_keys: true,
+				password: this.config.password
+			};
+
+			Firebird.attach(options, (err, db) => {
 				if (err) {
 					reject(err);
 				} else {
@@ -166,10 +191,26 @@ ORDER BY constraint_name,ordinal_position
 				console.log(sql);
 			}
 
-			this.client.query(sql, params, (err, result) => {
+			this.client.query(sql, params, (err, result, meta, isSelect) => {
 				if (err) {
 					reject(err);
 				} else {
+					const listFiledNamesString = [];
+
+					for (const field of meta) {
+						if ([14, 37, 448, 452].includes(field.type)) {
+							listFiledNamesString.push(CaseConvert.underscoreToCamel(field.alias.toLowerCase()));
+						}
+					}
+
+					for (const obj of result) {
+						for (let fieldName of listFiledNamesString) {
+							let value = obj[fieldName];
+							if (value == null) continue;
+							obj[fieldName] = value.toString().trim();
+						}
+					}
+
 					resolve(result);
 				}
 			});
@@ -318,11 +359,12 @@ class DbClientPostgres {
 			for (let [fieldName, field] of Object.entries(queryParams)) {
 				if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
 				let condition;
+				const paramId = this.client instanceof SqlAdapterNodeFirebird ? `?` : `$${params.length+1}`;
 
 				if (Array.isArray(field)) {
-					condition = CaseConvert.camelToUnderscore(fieldName) + operator + " ANY ($" + (params.length + 1) + ")";
+					condition = CaseConvert.camelToUnderscore(fieldName, false) + operator + " ANY (" + paramId + ")";
 				} else {
-					condition = CaseConvert.camelToUnderscore(fieldName) + operator + "$" + (params.length + 1);
+					condition = CaseConvert.camelToUnderscore(fieldName, false) + operator + paramId;
 				}
 
 				conditions.push(condition);
@@ -366,7 +408,7 @@ class DbClientPostgres {
 				}
 
 				if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
-				orderByInternal.push(CaseConvert.camelToUnderscore(fieldName) + extra);
+				orderByInternal.push(CaseConvert.camelToUnderscore(fieldName, false) + extra);
 			}
 
 			str = str + " ORDER BY " + orderByInternal.join(",");
@@ -382,15 +424,16 @@ class DbClientPostgres {
 			return value;
 		}
 
-		tableName = CaseConvert.camelToUnderscore(tableName);
+		tableName = CaseConvert.camelToUnderscore(tableName, false);
 		var i = 1;
 		const strFields = [];
 		const strValues = [];
 
 		for (let [fieldName, value] of Object.entries(obj)) {
 			if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
-			strFields.push(CaseConvert.camelToUnderscore(fieldName));
-			strValues.push(params != undefined ? "$" + i : sqlStringify(value));
+			strFields.push(CaseConvert.camelToUnderscore(fieldName, false));
+			const paramId = this.client instanceof SqlAdapterNodeFirebird ? `?` : `$${i}`;
+			strValues.push(params != undefined ? paramId : sqlStringify(value));
 
 			if (params != undefined) {
 				if (Array.isArray(value) == true) {
@@ -424,8 +467,8 @@ class DbClientPostgres {
 	}
 
 	find(schemaName, queryParams, orderBy) {
-		const tableName = CaseConvert.camelToUnderscore(schemaName);
-		const params = this.client.enableParams ? [] : undefined;
+		const tableName = CaseConvert.camelToUnderscore(schemaName, false);
+		const params = this.client.enableParams ? [] : null;
 		const sqlQuery = this.buildQuery(queryParams, params, orderBy);
 		let fieldsOut = "*";
 
@@ -439,9 +482,9 @@ class DbClientPostgres {
 				for (let [fieldName, property] of Object.entries(schema.properties)) {
 					if (property.internalName != null) {
 						count++;
-						names.push(CaseConvert.camelToUnderscore(property.internalName) + " as " + CaseConvert.camelToUnderscore(fieldName));
+						names.push(CaseConvert.camelToUnderscore(property.internalName, false) + " as " + CaseConvert.camelToUnderscore(fieldName, false));
 					} else {
-						names.push(CaseConvert.camelToUnderscore(fieldName));
+						names.push(CaseConvert.camelToUnderscore(fieldName, false));
 					}
 				}
 
@@ -449,8 +492,18 @@ class DbClientPostgres {
 			}
 		}
 
-		const sqlLimit = this.limitQueryExceptions.includes(tableName) == true ? "" : `LIMIT ${this.limitQuery}`;
-		const sql = `SELECT ${fieldsOut} FROM ${tableName} ${sqlQuery} ${sqlLimit}`;
+		let sqlFirst = "";
+		let sqlLimit = "";
+
+		if (this.limitQueryExceptions.includes(tableName) == false) {
+			if (this.client instanceof SqlAdapterNodeFirebird) {
+				sqlFirst =  `FIRST ${this.limitQuery}`;
+			} else {
+				sqlLimit =  `LIMIT ${this.limitQuery}`;
+			}
+		}
+
+		const sql = `SELECT ${sqlFirst} ${fieldsOut} FROM ${tableName} ${sqlQuery} ${sqlLimit}`;
 		console.log(sql);
 		return this.client.query(sql, params).then(result => {
 //			if (result.rows.length > 0) console.log(result.rows[0]);
@@ -470,7 +523,7 @@ class DbClientPostgres {
 	}
 
 	findMax(tableName, fieldName, queryParams) {
-		tableName = CaseConvert.camelToUnderscore(tableName);
+		tableName = CaseConvert.camelToUnderscore(tableName, false);
 		const params = this.client.enableParams ? [] : undefined;
 		const sql = "SELECT MAX(" + fieldName + ") FROM " + tableName + this.buildQuery(queryParams, params);
 		return this.client.query(sql, params).then(result => {
@@ -483,13 +536,14 @@ class DbClientPostgres {
 	}
 
 	update(tableName, primaryKey, obj) {
-		tableName = CaseConvert.camelToUnderscore(tableName);
+		tableName = CaseConvert.camelToUnderscore(tableName, false);
 		const params = this.client.enableParams ? [] : undefined;
 		var i = 1;
 		const list = [];
 
 		for (let [fieldName, value] of Object.entries(obj)) {
-			list.push(CaseConvert.camelToUnderscore(fieldName)+ "=" + (params != undefined ? "$" + i : this.sqlStringify(value)));
+			const paramId = this.client instanceof SqlAdapterNodeFirebird ? `?` : `$${i}`;
+			list.push(CaseConvert.camelToUnderscore(fieldName, false)+ "=" + (params != undefined ? paramId : this.sqlStringify(value)));
 
 			if (params != undefined) {
 				if (Array.isArray(value) == true) {
@@ -520,7 +574,7 @@ class DbClientPostgres {
 	}
 
 	deleteOne(tableName, primaryKey) {
-		tableName = CaseConvert.camelToUnderscore(tableName);
+		tableName = CaseConvert.camelToUnderscore(tableName, false);
 		const params = this.client.enableParams ? [] : undefined;
 		const sql = "DELETE FROM " + tableName + this.buildQuery(primaryKey, params) + " RETURNING *";
 		return this.client.query(sql, params).then(result => {
@@ -576,7 +630,7 @@ class DbClientPostgres {
 							schema.primaryKeys = [];
 							schema.foreignKeys = {};
 							schema.uniqueKeys = {};
-							const tableName = CaseConvert.camelToUnderscore(schemaName);
+							const tableName = CaseConvert.camelToUnderscore(schemaName, false);
 							const constraints = result.rows.filter(item => item.tableName.trim().toLowerCase() == tableName);
 
 							for (let constraint of constraints) {

@@ -318,6 +318,7 @@ class DataStoreManager {
 				return this.get(schemaRef.name, data.item.primaryKey).
 				then(objExternal => document[data.fieldName] = objExternal).
 				catch(err => console.error(err)).
+//				then(() => next(document, list));
 				finally(() => next(document, list));
 			}
 

@@ -30,6 +30,7 @@ class MicroServiceServer {
 			if (arg == base) {
 				value = [];
 				for (let j = i+1; j < process.argv.length && process.argv[j].startsWith("-") == false; j++) value.push(process.argv[j]);
+				if (value.length == 0) value = true;
 				break;
 			}
 
@@ -93,14 +94,17 @@ class MicroServiceServer {
 		this.restServer.all("*", (req, res, next) => this.expressEndPoint(req, res, next));
 
 		this.expressServer = express();
-		console.log(`[MicroServiceServer.constructor] service ${this.config.appName}, port ${this.config.port} : serving static files of ${this.config.webapp}`);
-		const paths = this.config.webapp.split(",");
 
-		for (let path of paths)
-			this.expressServer.use("/", express.static(path));
+		if (this.config.apiPath != "") {
+			console.log(`[MicroServiceServer.constructor] service ${this.config.appName}, port ${this.config.port} : serving static files of ${this.config.webapp}`);
+			const paths = this.config.webapp.split(",");
 
-		console.log(`[${this.constructor.name}.constructor()] service ${this.config.appName}, port ${this.config.port} : restServer at : ${this.config.apiPath}`);
-		this.expressServer.use("/" + this.config.apiPath, this.restServer);
+			for (let path of paths)
+				this.expressServer.use("/", express.static(path));
+
+			console.log(`[${this.constructor.name}.constructor()] service ${this.config.appName}, port ${this.config.port} : restServer at : ${this.config.apiPath}`);
+			this.expressServer.use("/" + this.config.apiPath, this.restServer);
+		}
 
 		if (this.config.apiPath != "rest") {
 			console.log(`[${this.constructor.name}.constructor()] service ${this.config.appName}, port ${this.config.port} : restServer at : rest`);

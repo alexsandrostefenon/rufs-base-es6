@@ -87,16 +87,16 @@ class OpenApi {
 		const jsonSchemaTypes = ["boolean", "string", "integer", "number", "date-time", "date", "object", "array"];
 		if (schemaNew.properties == undefined) schemaNew.properties = {};
 		if (schemaOld.properties == undefined) schemaOld.properties = {};
-		let newFields = schemaNew.properties;
-		let oldFields = schemaOld.properties;
-		if (newFields == undefined) throw new Error(`rufsServiceDbSync.generateJsonSchema(${schemaName}, ${newFields}) : newFields : Invalid Argument Exception`);
+		let newFields = schemaNew.properties || {};
+		let oldFields = schemaOld.properties || {};
 		if (typeof(newFields) == "string") newFields = Object.entries(JSON.parse(newFields));
 		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
-		if (newFields instanceof Map == false) newFields = Object.entries(newFields);
+		const newFieldsIterator = newFields instanceof Map == true ? newFields : Object.entries(newFields);
 		let jsonBuilder = {};
 		if (keepOld == true) jsonBuilder = oldFields;
 
-		for (let [fieldName, field] of newFields) {
+		for (let [fieldName, field] of newFieldsIterator) {
+			if (field == null) field = {};
 			if (field.type == undefined) field.type = "string";
 
 			if (field.hiden == undefined && field.identityGeneration != undefined) {
@@ -186,7 +186,7 @@ class OpenApi {
 			if (field.enum != undefined) jsonBuilderValue.enum = mergeArray(jsonBuilderValue.enum, field.enum);
 			if (field.enumLabels != undefined) jsonBuilderValue.enumLabels = mergeArray(jsonBuilderValue.enumLabels, field.enumLabels);
 			// exceções
-			if (oldFields != undefined && oldFields[fieldName] != undefined) {
+			if (oldFields[fieldName] != null) {
 				let fieldOriginal = oldFields[fieldName];
 				// copia do original os campos PLENAMENTE não SQL
 				jsonBuilderValue.title = fieldOriginal.title;
@@ -224,7 +224,12 @@ class OpenApi {
 				if (value == null) delete jsonBuilderValue[key];
 			}
 
-			jsonBuilder[fieldName] = jsonBuilderValue;
+			if (jsonBuilderValue["type"] == "array" && oldFields[fieldName] != null)
+				jsonBuilder[fieldName].items = this.mergeSchemas(oldFields[fieldName].items, newFields[fieldName].items, keepOld, schemaName);
+			else if (jsonBuilderValue["type"] == "object" && oldFields[fieldName] != null)
+				jsonBuilder[fieldName] = this.mergeSchemas(oldFields[fieldName], newFields[fieldName], keepOld, schemaName);
+			else
+				jsonBuilder[fieldName] = jsonBuilderValue;
 		}
 
 		const schema = {};
@@ -297,6 +302,7 @@ class OpenApi {
 
 				if (field.hiden) property["x-hiden"] = field.hiden;
 				if (field.internalName && onlyClientUsage != true) property["x-internalName"] = field.internalName;
+				if (field.enumLabels && onlyClientUsage != true) property["x-enumLabels"] = field.enumLabels;
 			} else {
 				if (field.example) property.example = field.example;
 				if (field.nullable) property.nullable = field.nullable;
@@ -312,6 +318,7 @@ class OpenApi {
 					if (field.essential) property["x-required"] = field.essential;
 					if (field.hiden) property["x-hiden"] = field.hiden;
 					if (field.internalName) property["x-internalName"] = field.internalName;
+					if (field.enumLabels) property["x-enumLabels"] = field.enumLabels;
 					if (field.identityGeneration) property["x-identityGeneration"] = field.identityGeneration;
 				}
 			}
@@ -401,7 +408,7 @@ class OpenApi {
 			}
 
 			if (schema.required == undefined) schema.required = [];
-			const skypes = ["x-$ref", "x-hiden", "x-internalName", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
+			const skypes = ["x-$ref", "x-hiden", "x-internalName", "x-enumLabels", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				delete field["x-required"];
@@ -466,11 +473,19 @@ class OpenApi {
 	}
 
 	static copyValue(field, value) {
+		if (value == null && field.essential == true && field.nullable != true) {
+			if (field.enum != null && field.enum.length == 1) {
+				value = field.enum[0];
+			} else if (field.default != null) {
+				value = field.default;
+			}
+		}
+
 		let ret;
 		const type = field["type"];
 
 		if (type == undefined || type == "string") {
-			ret = value;
+			ret = value != null && field.maxLength != null && typeof(value) == "string" ? value.substring(0, field.maxLength) : value;
 		} else if (type == "number" || type == "integer") {
 			if (typeof value == "string") {
 				ret = new Number(value).valueOf();
@@ -485,7 +500,7 @@ class OpenApi {
 			else
 				ret = (value == "true");
 		} else if (type == "date" || type == "date-time") {
-			ret = new Date(value);
+			ret = value != null && field.maxLength != null && typeof(value) == "string" ? value.substring(0, field.maxLength): new Date(value);
 		} else {
 			ret = value;
 		}
@@ -572,7 +587,7 @@ class OpenApi {
 			}
 		}
 
-		let ret = undefined;
+		let ret = null;
 
 		for (const [fieldName, field] of Object.entries(schema.properties)) {
 			if (field.internalName == propertyName) {
@@ -580,7 +595,29 @@ class OpenApi {
 				break;
 			}
 		}
+/*
+		if (ret == null) {
+			const propertyNameLowerCase = propertyName.toLowerCase();
 
+			for (const [fieldName, field] of Object.entries(schema.properties)) {
+				if (propertyNameLowerCase == fieldName.toLowerCase() || (field.internalName != null && propertyNameLowerCase == field.internalName.toLowerCase())) {
+					ret = obj[fieldName];
+
+					if (ret == null) {
+						for (const [name, value] of (Object.entries(obj))) {
+							if (name.toLowerCase() == propertyNameLowerCase || (field.internalName != null && name.toLowerCase() == field.internalName.toLowerCase())) {
+								ret = obj[name];
+								break;
+							}
+						}
+
+					}
+
+					break;
+				}
+			}
+		}
+*/
 		return ret;
 	}
 	// public

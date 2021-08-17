@@ -1,6 +1,6 @@
 class CaseConvert {
 
-    static camelToUnderscore(str) {
+    static camelToUnderscore(str, checkLastIsUpper) {
 		var ret = "";
 		var lastIsUpper = true;
 
@@ -10,10 +10,10 @@ class CaseConvert {
 			if (ch >= 'A' && ch <= 'Z') {
 				ch = ch.toLowerCase();
 
-				if (lastIsUpper == false) {
-					ret = ret + '_' + ch;
-				} else {
+				if (checkLastIsUpper != false && lastIsUpper == true) {
 					ret = ret + ch;
+				} else {
+					ret = ret + '_' + ch;
 				}
 
 				lastIsUpper = true;

@@ -328,7 +328,7 @@ class RufsMicroService extends MicroServiceServer {
 					if (groups == null)
 						return 0;
 
-					return BigInt(groups[1]) * 1000n * 1000n + BigInt(groups[2]) * 1000n + BigInt(groups[3]);
+					return Number(groups[1]) * 1000 * 1000 + Number(groups[2]) * 1000 + Number(groups[3]);
 				};
 
 				const migrate = (openapi, list) => {
@@ -354,10 +354,10 @@ class RufsMicroService extends MicroServiceServer {
 					}).
 					then(() => {
 						let newVersion = getVersion(fileName);
-						const v3 = newVersion % 1000n;
-						newVersion /= 1000n;
-						const v2 = newVersion % 1000n;
-						newVersion /= 1000n;
+						const v3 = newVersion % 1000;
+						newVersion /= 1000;
+						const v2 = newVersion % 1000;
+						newVersion /= 1000;
 						openapi.info.version = `${newVersion}.${v2}.${v3}`;
 						return this.storeOpenApi(openapi);
 					}).
@@ -461,10 +461,10 @@ RufsMicroService.openApiRufs = {
 					rufsGroupOwner: {type: "integer", nullable: false, $ref: "#/components/schemas/rufsGroupOwner"},
 					name: {maxLength: 32, nullable: false, unique:true},
 					password: {nullable: false},
-					roles: {maxLength: 10240},
-					routes: {maxLength: 10240},
+					roles: {maxLength: 102400},
+					routes: {maxLength: 102400},
 					path: {},
-					menu: {maxLength: 10240, nullable: true}
+					menu: {maxLength: 102400, nullable: true}
 				},
 				"primaryKeys": ["id"],
 				"uniqueKeys": {}

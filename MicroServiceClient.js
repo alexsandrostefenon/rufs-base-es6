@@ -4,7 +4,7 @@ import {HttpRestRequest, ServerConnection} from "./webapp/es6/ServerConnection.j
 import {MicroServiceServer} from "./MicroServiceServer.js";
 
 HttpRestRequest.fetch = fetch;
-ServerConnection.WebSocket = websocket.client;
+ServerConnection.WebSocket = websocket.w3cwebsocket;
 // connnect into rest server
 class MicroServiceClient extends ServerConnection {
 
