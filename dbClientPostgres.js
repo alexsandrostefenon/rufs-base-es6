@@ -355,6 +355,8 @@ class DbClientPostgres {
 	}
 
 	buildQuery(queryParams, params, orderBy) {
+		if (queryParams == null) return "";
+
 		const buildConditions = (queryParams, params, operator, conditions) => {
 			for (let [fieldName, field] of Object.entries(queryParams)) {
 				if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
@@ -373,9 +375,6 @@ class DbClientPostgres {
 
 			return conditions;
 		}
-
-		if (queryParams == undefined || queryParams == null)
-			return "";
 
 		let conditions = [];
 
@@ -586,7 +585,7 @@ class DbClientPostgres {
 		});
 	}
 
-	getOpenApi() {
+	getOpenApi(openapi, options) {
 		const getFieldName = (columnName, field) => {
 			let fieldName = CaseConvert.underscoreToCamel(columnName.trim().toLowerCase(), false);
 			const fieldNameLowerCase = fieldName.toLowerCase();
@@ -619,14 +618,14 @@ class DbClientPostgres {
 			}
 		}
 
-		const processConstraints = openapi => {
+		const processConstraints = schemas => {
 			return this.client.query(this.client.sqlInfoConstraints).
 			then(result => {
 				return this.client.query(this.client.sqlInfoConstraintsFields).
 				then(resultFields => {
 					return this.client.query(this.client.sqlInfoConstraintsFieldsRef).
 					then(resultFieldsRef => {
-						for (let [schemaName, schema] of Object.entries(openapi.components.schemas)) {
+						for (let [schemaName, schema] of Object.entries(schemas)) {
 							schema.primaryKeys = [];
 							schema.foreignKeys = {};
 							schema.uniqueKeys = {};
@@ -723,7 +722,7 @@ class DbClientPostgres {
 							}
 						}
 
-						return openapi;
+						return schemas;
 					});
 				});
 			}).
@@ -735,7 +734,7 @@ class DbClientPostgres {
 
 		const processColumns = () => {
 			return this.client.query(this.client.sqlInfoTables).then(result => {
-				let openapi = {"components": {"schemas": {}}};
+				const schemas = {};
 
 				for (let rec of result.rows) {
 					let typeIndex = this.sqlTypes.indexOf(rec.dataType.trim().toLowerCase());
@@ -744,13 +743,12 @@ class DbClientPostgres {
 						const tableName = CaseConvert.underscoreToCamel(rec.tableName.trim().toLowerCase(), false);
 						let schema;
 
-						if (openapi.components.schemas[tableName] != undefined) {
-							schema = openapi.components.schemas[tableName];
+						if (schemas[tableName] != undefined) {
+							schema = schemas[tableName];
 						} else {
-							schema = {};
+							schemas[tableName] = schema = {};
 							schema.type = "object";
 							schema.properties = {};
-							openapi.components.schemas[tableName] = schema;
 						}
 
 						if (schema.required == undefined) schema.required = [];
@@ -796,13 +794,19 @@ class DbClientPostgres {
 					}
 				}
 
-				return openapi;
+				return schemas;
 			});
 		};
 
 		return processColumns().
-		then(openapi => processConstraints(openapi)).
-		then(openapi => this.openapi = openapi);
+		then(schemas => processConstraints(schemas)).
+		then(schemas => {
+			if (options == null) options = {};
+			options.schemas = schemas;
+			if (openapi == null) openapi = {};
+			this.openapi = openapi;
+			return OpenApi.fillOpenApi(openapi, options);
+		});
 	}
 
 }

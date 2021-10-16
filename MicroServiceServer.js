@@ -30,7 +30,15 @@ class MicroServiceServer {
 			if (arg == base) {
 				value = [];
 				for (let j = i+1; j < process.argv.length && process.argv[j].startsWith("-") == false; j++) value.push(process.argv[j]);
-				if (value.length == 0) value = true;
+
+				if (value.length == 0) {
+					if (Array.isArray(defaultValue) == true) {
+						value = defaultValue;
+					} else {
+						value = true;
+					}
+				}
+
 				break;
 			}
 

@@ -164,8 +164,10 @@ class RufsMicroService extends MicroServiceServer {
 	authenticateUser(userName, userPassword, loginResponse) {
 		// sleep one secound to prevent db/disk over access in network atack
 		return new Promise(r => setTimeout(r, 1000)).
+		// trocar por this.fileDbAdapter.reload(["rufsGroup", "rufsGroupOwner", "rufsUser", "rufsGroupUser"]).
 		then(() => this.loadRufsTables()).
 		then(() => {
+			// replace by this.fileDbAdapter.findOne("rufsUser", {"name": userName})
 			let user = Filter.findOne(this.listUser, {"name": userName});
 
 			if (!user || user.password != userPassword)
@@ -178,7 +180,7 @@ class RufsMicroService extends MicroServiceServer {
 			loginResponse.menu = user.menu;
 
 			if (loginResponse.rufsGroupOwner) {
-				const item = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);
+				const item = this.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);
 				const rufsGroupOwner = Filter.findOne(this.listGroupOwner, item.primaryKey);
 				if (rufsGroupOwner != null) loginResponse.title = rufsGroupOwner.name + " - " + userName;
 			}
@@ -221,10 +223,10 @@ class RufsMicroService extends MicroServiceServer {
 			return this.authenticateUser(userName, req.body.password, loginResponse).
 			then(roles => {
 				if (userName == "admin") {
-					loginResponse.openapi = RequestFilter.dataStoreManager.openapi;
+					loginResponse.openapi = this.entityManager.dataStoreManager.openapi;
 				} else {
 					loginResponse.openapi = OpenApi.create({});
-					OpenApi.copy(loginResponse.openapi, RequestFilter.dataStoreManager.openapi, roles);
+					OpenApi.copy(loginResponse.openapi, this.entityManager.dataStoreManager.openapi, roles);
 					this.storeOpenApi(loginResponse.openapi, `openapi-${userName}.json`);
 				}
 
@@ -261,11 +263,14 @@ class RufsMicroService extends MicroServiceServer {
 		}
 
 		return this.loadOpenApi().
-		then(openapi => this.fileDbAdapter = new FileDbAdapter(openapi)).
+		then(openapi => {
+			this.fileDbAdapter = new FileDbAdapter(openapi);
+			return RequestFilter.updateRufsServices(this.fileDbAdapter, openapi);
+		}).
 		then(() => loadTable("rufsService", [])).
 //		then(rows => this.listRufsService= rows).
 		then(() => loadTable("rufsGroup", [])).
-		then(rows => this.listGroup= rows).
+		then(rows => this.listGroup = rows).
 		then(() => loadTable("rufsGroupUser", [])).
 		then(rows => this.listGroupUser = rows).
 		then(() => loadTable("rufsGroupOwner", [RufsMicroService.defaultGroupOwnerAdmin])).
@@ -376,32 +381,33 @@ class RufsMicroService extends MicroServiceServer {
 			};
 
 			return execMigrations().
-			then(() => this.entityManager.getOpenApi()).
+			then(() => this.entityManager.getOpenApi({}, {requestBodyContentType: this.config.requestBodyContentType})).
 			then(openApiDb => {
 				return this.loadOpenApi().
 				then(openapi => {
 					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
-
+					OpenApi.fillOpenApi(openApiDb, {schemas: RufsMicroService.openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType});
+/*
 					for (let name in RufsMicroService.openApiRufs.components.schemas) {
 						if (openApiDb.components.schemas[name] == undefined) {
 							openApiDb.components.schemas[name] = RufsMicroService.openApiRufs.components.schemas[name];
 						}
 					}
-
+*/
 					for (let [name, schemaDb] of Object.entries(openApiDb.components.schemas)) {
 						openApiDb.components.schemas[name] = OpenApi.mergeSchemas(openapi.components.schemas[name], schemaDb, false, name);
 					}
 
-					OpenApi.fillOpenApi(openApiDb, {requestBodyContentType: this.config.requestBodyContentType});
+//					OpenApi.fillOpenApi(openApiDb, {requestBodyContentType: this.config.requestBodyContentType});
 //					OpenApi.merge(openapi, openApiDb);
 
 					for (let name in openApiDb.components.schemas) {
 						if (openapi.components.schemas[name] == undefined) {
-							openapi.components.schemas[name] = openApiDb.components.schemas[name];
-							openapi.paths["/" + name] = openApiDb.paths["/" + name];
-							openapi.components.parameters[name] = openApiDb.components.parameters[name];
-							openapi.components.requestBodies[name] = openApiDb.components.requestBodies[name];
-							openapi.components.responses[name] = openApiDb.components.responses[name];
+							if (openApiDb.components.schemas[name] != null) openapi.components.schemas[name] = openApiDb.components.schemas[name];
+							if (openApiDb.paths["/" + name] != null) openapi.paths["/" + name] = openApiDb.paths["/" + name];
+							if (openApiDb.components.parameters[name] != null) openapi.components.parameters[name] = openApiDb.components.parameters[name];
+							if (openApiDb.components.requestBodies[name] != null) openapi.components.requestBodies[name] = openApiDb.components.requestBodies[name];
+							if (openApiDb.components.responses[name] != null) openapi.components.responses[name] = openApiDb.components.responses[name];
 						}
 					}
 

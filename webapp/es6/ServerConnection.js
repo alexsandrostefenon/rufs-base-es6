@@ -202,9 +202,10 @@ class RufsService extends DataStoreItem {
 		if (schema == undefined)
 			schema = this;
 
-    	return this.httpRest.save(this.pathRest, OpenApi.copyFields(schema, itemSend)).
-    	then(data => {
-    		return this.updateList(data);
+		const dataOut = OpenApi.copyFields(schema, itemSend);
+    	return this.httpRest.save(this.pathRest, dataOut).
+    	then(dataIn => {
+    		return this.updateList(dataIn);
     	});
 	}
 

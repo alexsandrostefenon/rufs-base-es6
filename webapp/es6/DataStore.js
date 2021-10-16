@@ -4,7 +4,7 @@ import {OpenApi} from "./OpenApi.js";
 class RufsSchema {
 
 	setSchema(schema) {
-		this.properties = schema.properties;
+		this.properties = schema.properties || schema.items.properties;
 		this.foreignKeys = schema.foreignKeys || {};
 		this.uniqueKeys = schema.uniqueKeys;
 		this.primaryKeys = schema.primaryKeys || [];
@@ -331,14 +331,11 @@ class DataStoreManager {
 
 			for (let item of dependents) {
 				const rufsServiceOther = this.getSchema(item.table, tokenData);
-
-				if (rufsServiceOther) {
-					let rufsServiceOther = this.getSchema(item.table, tokenData);
-					let field = rufsServiceOther.properties[item.field];
-					let foreignKey = this.getForeignKey(rufsServiceOther, item.field, obj);
-					// TODO : check to findRemote
-					promises.push(service.find(foreignKey).then(list => document[field.document] = list));
-				}
+				if (rufsServiceOther == null) continue;
+				let field = rufsServiceOther.properties[item.field];
+				let foreignKey = this.getForeignKey(rufsServiceOther, item.field, obj);
+				// TODO : check to findRemote
+				promises.push(service.find(foreignKey).then(list => document[field.document] = list));
 			}
 		}
 

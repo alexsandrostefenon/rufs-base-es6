@@ -30,21 +30,21 @@ class DataStoreManagerDb extends DataStoreManager {
 
 class RequestFilter {
 // private to create,update,delete,read
-	static checkObjectAccess(tokenData, serviceName, obj) {
+	static checkObjectAccess(entityManager, tokenData, serviceName, obj) {
 		let service;
 
 		try {
-			service = RequestFilter.getSchema(tokenData, serviceName);
+			service = RequestFilter.getSchema(entityManager, tokenData, serviceName);
 		} catch (e) {
 			return Response.unauthorized(e.Message);
 		}
 
 		let response = null;
-		const userRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
-		const rufsGroupOwnerEntries = RequestFilter.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
+		const userRufsGroupOwner = entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
+		const rufsGroupOwnerEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
 
 		if (userRufsGroupOwner != undefined && userRufsGroupOwner.primaryKey.id > 1 && rufsGroupOwnerEntries.length > 0) {
-			const objRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
+			const objRufsGroupOwner = entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
 
 			if (objRufsGroupOwner == undefined) {
 				obj.rufsGroupOwner = userRufsGroupOwner.primaryKey.id;
@@ -53,7 +53,7 @@ class RequestFilter {
 			}
 
 			if (objRufsGroupOwner.primaryKey.id == userRufsGroupOwner.primaryKey.id) {
-				const rufsGroup = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
+				const rufsGroup = entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
 
 				if (rufsGroup != undefined && tokenData.groups.indexOf(rufsGroup.primaryKey.id) < 0) {
 					response = Response.unauthorized("unauthorized object rufsGroup");
@@ -66,12 +66,12 @@ class RequestFilter {
 		return response;
 	}
 	//
-	static getSchema(tokenData, serviceName) {
-		return RequestFilter.dataStoreManager.getSchema(serviceName, tokenData);
+	static getSchema(entityManager, tokenData, serviceName) {
+		return entityManager.dataStoreManager.getSchema(serviceName, tokenData);
 	}
 	// public
 	static processCreate(user, entityManager, serviceName, obj, microService) {
-		const response = RequestFilter.checkObjectAccess(user, serviceName, obj);
+		const response = RequestFilter.checkObjectAccess(entityManager, user, serviceName, obj);
 
 		if (response != null) Promise.resolve(response);
 
@@ -83,12 +83,12 @@ class RequestFilter {
 	}
 	// public
 	static getObject(tokenData, queryParams, entityManager, serviceName, useDocument) {
-		const primaryKey = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams, true);
+		const primaryKey = RequestFilter.parseQueryParameters(entityManager, tokenData, serviceName, queryParams, true);
 		return entityManager.findOne(serviceName, primaryKey).
 		then(obj => {
 			if (useDocument != true) return obj;
-			const service = this.getSchema(tokenData, serviceName);
-			return RequestFilter.dataStoreManager.getDocument(service, obj, true, tokenData);
+			const service = this.getSchema(entityManager, tokenData, serviceName);
+			return entityManager.dataStoreManager.getDocument(service, obj, true, tokenData);
 		}).
 		catch(error => {
 			throw new Error(`[RequestFilter.getObject] for service ${serviceName}, fail to find object with primaryKey ${JSON.stringify(primaryKey)} : ` + error.message);
@@ -101,11 +101,11 @@ class RequestFilter {
 	// public processUpdate
 	static processUpdate(user, queryParams, entityManager, serviceName, obj, microService) {
 		return RequestFilter.getObject(user, queryParams, entityManager, serviceName).then(oldObj => {
-			const response = RequestFilter.checkObjectAccess(user, serviceName, obj);
+			const response = RequestFilter.checkObjectAccess(entityManager, user, serviceName, obj);
 
 			if (response != null) return Promise.resolve(response);
 
-			return entityManager.update(serviceName, RequestFilter.parseQueryParameters(user, serviceName, queryParams, true), obj).then(newObj => {
+			return entityManager.update(serviceName, RequestFilter.parseQueryParameters(entityManager, user, serviceName, queryParams, true), obj).then(newObj => {
 				const primaryKey = RequestFilter.notify(microService, newObj, serviceName, false);
 				// force read, cases of triggers before break result value
 				return entityManager.findOne(serviceName, primaryKey).then(_obj => Response.ok(_obj));
@@ -115,7 +115,7 @@ class RequestFilter {
 	// public processDelete
 	static processDelete(user, queryParams, entityManager, serviceName, microService) {
 		return RequestFilter.getObject(user, queryParams, entityManager, serviceName).then(obj => {
-			return entityManager.deleteOne(serviceName, RequestFilter.parseQueryParameters(user, serviceName, queryParams, true)).then(objDeleted => {
+			return entityManager.deleteOne(serviceName, RequestFilter.parseQueryParameters(entityManager, user, serviceName, queryParams, true)).then(objDeleted => {
 				RequestFilter.notify(microService, objDeleted, serviceName, true);
 				return Response.ok(objDeleted);
 			});
@@ -123,11 +123,11 @@ class RequestFilter {
 	}
 	// public
 	static processPatch(user, entityManager, serviceName, obj, microService) {
-		const response = RequestFilter.checkObjectAccess(user, serviceName, obj);
+		const response = RequestFilter.checkObjectAccess(entityManager, user, serviceName, obj);
 
 		if (response != null) Promise.resolve(response);
 
-		const service = RequestFilter.getSchema(user, serviceName);
+		const service = RequestFilter.getSchema(entityManager, user, serviceName);
 
 		const process = keys => {
 			if (keys.length > 0) {
@@ -147,18 +147,18 @@ class RequestFilter {
 		});
 	}
 	// private
-	static parseQueryParameters(tokenData, serviceName, queryParameters, onlyPrimaryKey) {
+	static parseQueryParameters(entityManager, tokenData, serviceName, queryParameters, onlyPrimaryKey) {
 		// se não for admin, limita os resultados para as rufsGroup vinculadas a empresa do usuário
 		const userRufsGroupOwner = tokenData.rufsGroupOwner;
-		const rufsGroupOwnerEntries = RequestFilter.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
-		const rufsGroupEntries = RequestFilter.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroup");
+		const rufsGroupOwnerEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
+		const rufsGroupEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroup");
 
 		if (userRufsGroupOwner > 1) {
 			if (rufsGroupOwnerEntries.length > 0) queryParameters[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
 			if (rufsGroupEntries.length > 0) queryParameters[rufsGroupEntries[0].fieldName] = tokenData.groups;
 		}
 
-		const service = RequestFilter.getSchema(tokenData, serviceName);
+		const service = RequestFilter.getSchema(entityManager, tokenData, serviceName);
 		const obj = OpenApi.copyFields(service, queryParameters);
 		let ret;
 
@@ -174,9 +174,9 @@ class RequestFilter {
 	}
 	// public
 	static processQuery(tokenData, queryParams, entityManager, serviceName) {
-		const fields = RequestFilter.parseQueryParameters(tokenData, serviceName, queryParams);
+		const fields = Object.entries(queryParams).length > 0 ? RequestFilter.parseQueryParameters(entityManager, tokenData, serviceName, queryParams) : null;
 		let orderBy = [];
-		const service = RequestFilter.getSchema(tokenData, serviceName);
+		const service = RequestFilter.getSchema(entityManager, tokenData, serviceName);
 
 		for (let fieldName of service.primaryKeys) {
 			const field = service.properties[fieldName];
@@ -292,7 +292,7 @@ class RequestFilter {
 	}
 	// This method sends the same Bidding object to all opened sessions
 	static notify(microService, obj, serviceName, isRemove) {
-        const service = RequestFilter.dataStoreManager.services[serviceName];
+        const service = microService.entityManager.dataStoreManager.services[serviceName];
 		const primaryKey = service.getPrimaryKey(obj);
 		var msg = {};
 		msg.service = serviceName;
@@ -305,13 +305,13 @@ class RequestFilter {
 		}
 
 		let str = JSON.stringify(msg);
-		const objRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
-		const rufsGroup = RequestFilter.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
+		const objRufsGroupOwner = microService.entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
+		const rufsGroup = microService.entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
 		console.log("[RequestFilter.notify] broadcasting...", msg);
 
 		for (let [userName, wsServerConnection] of microService.wsServerConnections) {
 			let tokenData = wsServerConnection.token;
-			const userRufsGroupOwner = RequestFilter.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
+			const userRufsGroupOwner = microService.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
 			// enviar somente para os clients de "rufsGroupOwner"
 			let checkRufsGroupOwner = objRufsGroupOwner == undefined || objRufsGroupOwner.primaryKey.id == userRufsGroupOwner.primaryKey.id;
 			let checkRufsGroup = rufsGroup == undefined || tokenData.groups.indexOf(rufsGroup.primaryKey.id) >= 0;
@@ -333,14 +333,14 @@ class RequestFilter {
 
 	static updateRufsServices(entityManager, openapi) {
         return Promise.resolve().then(() => {
-        	console.log(`RequestFilter.updateRufsServices() : reseting RequestFilter.dataStoreManager`);
+        	console.log(`RequestFilter.updateRufsServices() : reseting entityManager.dataStoreManager`);
 			const listDataStore = [];
 			// TODO : trocar openapi.components.schemas por openapi.paths
         	for (let name in openapi.components.schemas) {
         		listDataStore.push(new DataStore(name, openapi.components.schemas[name]));
         	}
 
-        	RequestFilter.dataStoreManager = new DataStoreManagerDb(listDataStore, openapi, entityManager);
+        	entityManager.dataStoreManager = new DataStoreManagerDb(listDataStore, openapi, entityManager);
         });
 	}
 
