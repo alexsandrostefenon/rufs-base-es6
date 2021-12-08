@@ -325,15 +325,13 @@ class RufsMicroService extends MicroServiceServer {
 				if (fs.existsSync(this.config.migrationPath) == false)
 					return Promise.resolve();
 
-				const regExp = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})/;
+				const regExp1 = /^(?<v1>\d{1,3})\.(?<v2>\d{1,3})\.(?<v3>\d{1,3})/;
+				const regExp2 = /^(?<v1>\d{3})(?<v2>\d{3})(?<v3>\d{3})/;
 
 				const getVersion = name => {
-					const groups = regExp.exec(name);
-
-					if (groups == null)
-						return 0;
-
-					return Number(groups[1]) * 1000 * 1000 + Number(groups[2]) * 1000 + Number(groups[3]);
+					const regExpResult = regExp1.exec(name);
+					if (regExpResult == null) return 0;
+					return Number.parseInt(regExpResult.groups.v1.padStart(3, "0") + regExpResult.groups.v2.padStart(3, "0") + regExpResult.groups.v3.padStart(3, "0"));
 				};
 
 				const migrate = (openapi, list) => {
@@ -359,11 +357,8 @@ class RufsMicroService extends MicroServiceServer {
 					}).
 					then(() => {
 						let newVersion = getVersion(fileName);
-						const v3 = newVersion % 1000;
-						newVersion /= 1000;
-						const v2 = newVersion % 1000;
-						newVersion /= 1000;
-						openapi.info.version = `${newVersion}.${v2}.${v3}`;
+						const regExpResult = regExp2.exec(newVersion.toString().padStart(9, "0"));
+						openapi.info.version = `${Number.parseInt(regExpResult.groups.v1)}.${Number.parseInt(regExpResult.groups.v2)}.${Number.parseInt(regExpResult.groups.v3)}`;
 						return this.storeOpenApi(openapi);
 					}).
 					then(() => migrate(openapi, list));

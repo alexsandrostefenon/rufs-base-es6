@@ -5,7 +5,7 @@ class OpenApi {
 	static create(openapi, security) {
 		if (openapi.openapi == undefined) openapi.openapi = "3.0.3";
 		if (openapi.info == undefined) {
-			openapi.info = {"title": "rufs-base-es6 openapi genetator", "version": "1.0.0", "description": "CRUD operations"};
+			openapi.info = {"title": "rufs-base-es6 openapi genetator", "version": "0.0.0", "description": "CRUD operations"};
 			openapi.info.contact = {
 			  "name": "API Support",
 			  "url": "http://www.example.com/support",
@@ -255,16 +255,19 @@ class OpenApi {
 			standartSchema["x-foreignKeys"] = schema.foreignKeys;
 		}
 
+		standartSchema.description = schema.description;
 		standartSchema.properties = {};
 
 		for (let [fieldName, field] of Object.entries(schema.properties)) {
 			if (onlyClientUsage == true && field.hiden == true) continue;
 			let property = {};
-			const type = field.type;
+			let type = field.type;
 
 			if (type == "date-time" || type == "date") {
 				property.type = "string";
 				property.format = type;
+			} else if (type == null && field.properties != null) {
+				type = "object";
 			} else {
 				property.type = type;
 			}
@@ -285,6 +288,9 @@ class OpenApi {
 				}
 			} else if (type == "array") {
 				if (field.items) {
+					if (field.minItems != null) property.minItems = field.minItems;
+					if (field.maxItems != null) property.maxItems = field.maxItems;
+
 					if (field.items.type == "object") {
 						if (field.items.$ref) {
 							property.items = {};
@@ -977,11 +983,12 @@ class OpenApi {
 		for (const schemaName in options.schemas) {
 			const requestSchema = options.requestSchemas[schemaName];
 			const parameterSchema = options.parameterSchemas[schemaName];
-			if (forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
+			if (options.forceGenerateSchemas != true && forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
 			const schema = options.schemas[schemaName];
 			if (schema.primaryKeys == undefined) schema.primaryKeys = [];
 			if (openapi.tags.find(item => item.name == schemaName) == undefined) openapi.tags.push({"name": schemaName});
 			const referenceToSchema = {"$ref": `#/components/schemas/${schemaName}`};
+//			if (forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
 			// fill components/requestBody with schemas
 			openapi.components.requestBodies[schemaName] = {"required": true, "content": {}};
 			openapi.components.requestBodies[schemaName].content[options.requestBodyContentType] = {"schema": options.requestSchemas[schemaName] || referenceToSchema};

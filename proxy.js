@@ -13,8 +13,6 @@ class RufsProxy {
 
 		if (config.host == "0.0.0.0") {
 			this.proxy.addResolver((host, url, req) => {
-//				console.log("host:", host);
-//				console.log("url:", url);
 				let ret = {};
 				
 				if (url.length > 0) {
@@ -24,6 +22,8 @@ class RufsProxy {
 					if (route != undefined) {
 						ret.url = route.target;
 						req.url = req.url.substring(route.sourcePath.length + 1);
+						req.headers.host = route.target.replace(/(https?:\/\/)?([\w-_\.]*).*/, "$2");
+						console.log("req.headers.host:", req.headers.host);
 					}
 				}
 

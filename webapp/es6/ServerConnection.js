@@ -340,7 +340,7 @@ class ServerConnection extends DataStoreManager {
     		const schemas = [];
             // depois carrega os serviços autorizados
 			// TODO : trocar openapi.components.schemas por openapi.paths
-            for (let [schemaName, schema] of Object.entries(loginResponse.openapi.components.schemas)) {
+			for (let [schemaName, schema] of Object.entries(loginResponse.openapi.components.schemas)) {
 				if (schema.appName == undefined) schema.appName = path;
 				const service = this.services[schemaName] = new RufsServiceClass(schemaName, schema, this, this.httpRest);
 				const methods = ["get", "post", "patch", "put", "delete"];

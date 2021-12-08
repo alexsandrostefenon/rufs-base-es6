@@ -253,9 +253,11 @@ class MicroServiceServer {
 		});
 	}
 
-	loadOpenApi() {
-		console.log(`[${this.constructor.name}.loadOpenApi()] loading openapi-${this.config.appName}.json`);
-		return fsPromises.readFile(`openapi-${this.config.appName}.json`).
+	loadOpenApi(fileName) {
+		if (fileName == null) fileName = this.constructor.getArg("openapi-file");
+		if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
+		console.log(`[${this.constructor.name}.loadOpenApi()] loading ${fileName}`);
+		return fsPromises.readFile(fileName).
 		then(text => {
 			return JSON.parse(text);
 		}).
@@ -275,7 +277,7 @@ class MicroServiceServer {
 	}
 
 	storeOpenApi(openapi, fileName) {
-		if (fileName == undefined) fileName = `openapi-${this.config.appName}.json`;
+		if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
 		return fsPromises.writeFile("rufs-" + fileName, JSON.stringify(openapi, null, "\t")).
 		then(() => OpenApi.convertRufsToStandart(openapi)).
 		then(standartOpenApi => fsPromises.writeFile(fileName, JSON.stringify(standartOpenApi, null, "\t"))).
