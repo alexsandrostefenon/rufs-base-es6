@@ -46,7 +46,8 @@ class HttpRestRequest {
 		if (urlSearchParams == undefined || urlSearchParams == null)
 			return {};
 
-		const searchParams = Qs.parse(urlSearchParams, {ignoreQueryPrefix: true, allowDots: true});
+		const _Qs = HttpRestRequest.Qs != null ? HttpRestRequest.Qs : Qs;
+		const searchParams = _Qs.parse(urlSearchParams, {ignoreQueryPrefix: true, allowDots: true});
 		if (properties != undefined) convertSearchParamsTypes(searchParams, properties);
 		return searchParams;
 	}
@@ -57,7 +58,8 @@ class HttpRestRequest {
 		url = url + path;
 
 		if (params != undefined && params != null) {
-			url = url + "?" + Qs.stringify(params, {allowDots: true});
+			const _Qs = HttpRestRequest.Qs != null ? HttpRestRequest.Qs : Qs;
+			url = url + "?" + _Qs.stringify(params, {allowDots: true});
 		}
 		
 		let options = {};
@@ -270,6 +272,7 @@ class ServerConnection extends DataStoreManager {
 			if (service == null || service == undefined) return Promise.resolve(null);
 			return this.httpRest.get(service.pathRest, primaryKey).
 			then(data => {
+				if (data == null) return null;
 				data.isCache = false;
 				return service.cache(primaryKey, data);
 			});

@@ -1018,6 +1018,7 @@ class Filter {
     }
 	// public
 	static checkMatchExact(item, obj) {
+		if (obj == null) return item == null;
     	let match = true;
 
     	for (let fieldName in obj) {
@@ -1036,10 +1037,12 @@ class Filter {
 	}
 	// public
 	static find(list, obj) {
+		if (obj == null) return list;
 		return list.filter(item => Filter.checkMatchExact(item, obj));
 	}
 	// public
 	static findOne(list, obj, callback) {
+		if (obj == null) return null;
 		var ret = null;
 
         for (var i = 0; i < list.length; i++) {

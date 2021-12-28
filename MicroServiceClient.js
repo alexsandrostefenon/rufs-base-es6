@@ -1,9 +1,11 @@
 import fetch from "node-fetch";
+import Qs from "qs";
 import websocket from "websocket";
 import {HttpRestRequest, ServerConnection} from "./webapp/es6/ServerConnection.js";
 import {MicroServiceServer} from "./MicroServiceServer.js";
 
 HttpRestRequest.fetch = fetch;
+HttpRestRequest.Qs = Qs;
 ServerConnection.WebSocket = websocket.w3cwebsocket;
 // connnect into rest server
 class MicroServiceClient extends ServerConnection {
