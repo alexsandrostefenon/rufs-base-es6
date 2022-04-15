@@ -423,6 +423,7 @@ class OpenApi {
 
 			if (schema.required == undefined) schema.required = [];
 			const skypes = ["x-$ref", "x-title", "x-hiden", "x-internalName", "x-enumLabels", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
+			if (schema.properties == null) schema.properties = {};
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				delete field["x-required"];
@@ -448,6 +449,8 @@ class OpenApi {
 		}
 
 		for (let [name, schema] of Object.entries(openapi.components.schemas)) convertSchema(schema);
+
+		if (openapi.components.requestBodies == null) openapi.components.requestBodies = {};
 
 		for (let [name, requestBodyObject] of Object.entries(openapi.components.requestBodies)) {
 			for (let [mediaTypeName, mediaTypeObject] of Object.entries(requestBodyObject.content)) {

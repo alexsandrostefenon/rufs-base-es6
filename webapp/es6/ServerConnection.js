@@ -395,14 +395,16 @@ class ServerConnection extends DataStoreManager {
                 			queryRemoteServices();
                 		}).catch(error => reject(error));
             		} else {
-            	    	this.webSocketConnect(path);
                			console.log("[ServerConnection] ...loaded services");
                     	resolve(loginResponse);
             		}
             	}
 
                 queryRemoteServices();
-        	});
+        	}).then(loginResponse => {
+				this.webSocketConnect(path);
+				return loginResponse;
+			});
     	});
     }
     // public

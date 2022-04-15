@@ -400,8 +400,10 @@ class RufsMicroService extends MicroServiceServer {
 						if (openapi.components.schemas[name] == undefined) {
 							if (openApiDb.components.schemas[name] != null) openapi.components.schemas[name] = openApiDb.components.schemas[name];
 							if (openApiDb.paths["/" + name] != null) openapi.paths["/" + name] = openApiDb.paths["/" + name];
+							if (openapi.components.parameters == null) openapi.components.parameters = {}
 							if (openApiDb.components.parameters[name] != null) openapi.components.parameters[name] = openApiDb.components.parameters[name];
 							if (openApiDb.components.requestBodies[name] != null) openapi.components.requestBodies[name] = openApiDb.components.requestBodies[name];
+							if (openapi.components.responses == null) openapi.components.responses = {}
 							if (openApiDb.components.responses[name] != null) openapi.components.responses[name] = openApiDb.components.responses[name];
 						}
 					}

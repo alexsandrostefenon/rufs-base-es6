@@ -4,28 +4,72 @@ Restful Utilities for Full Stack - Base Modules and Microservices to NodeJs and 
 
 Offer base package to rufs compliance microservices
 
-Requires NodeJs version >= 9.1.
-
-You need PostgreSql server already running.
+You need NodeJs installed and PostgreSql server already running with your database.
 
 ## First Step
-    
+
 Open terminal and clone this repository with `git clone https://github.com/alexsandrostefenon/rufs-base-es6`.
 
-To download the required dependencies then
+Requires NodeJs version >= 12.22.0 :
+`
+curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash;
+[restart terminal]
+node_version='12.22.5';
+nvm install $node_version;
+ln -s $HOME/.nvm/versions/node/v$node_version/bin/node $HOME/.nvm/versions/node/v$node_version/bin/nodejs;
+`
+Install :
+`
+npm install ./rufs-base-es6;
+`
+## Run Ecosystem
 
-`npm install ./rufs-base-es6` 
+## PostgreSql setup
+
+create database :
+
+sudo su postgres;
 
 or
 
-`yarnpkg install --cwd ./rufs-base-es6 --modules-folder $NODE_MODULES_PATH`
+su -c "su postgres";
 
-where $NODE_MODULES_PATH point to your desired node_modules folder destination.
+export PGDATABASE=postgres;
+psql -c "CREATE USER development WITH CREATEDB LOGIN PASSWORD '123456'";
+psql -c 'CREATE DATABASE rufs_base_development WITH OWNER development';
+exit;
 
-### Run standalone micro-service application
+Note, database "rufs_base_development" is only for testing purposes.
 
-execute :
+### Run Ecosystem
 
-`nodejs --experimental-modules --loader ./rufs-base-es6/custom-loader.mjs ./rufs-base-es6/RufsServiceMicroService.js --port=8082;`
-`nodejs --experimental-modules --loader ./rufs-base-es6/custom-loader.mjs ./rufs-base-es6/AuthenticationMicroService.js --port=8083;`
-`nodejs --experimental-modules --loader ./rufs-base-es6/custom-loader.mjs ./rufs-base-es6/RufsMicroService.js --port=8084;`
+#Only to clean already existent configuration :
+
+rm *openapi-base.json;
+
+#Only to clean already existent testing data :
+
+export PGHOST=localhost;
+export PGPORT=5432;
+export PGUSER=development;
+export PGPASSWORD=123456;
+
+psql rufs_base_development -c "DROP DATABASE IF EXISTS rufs_base;" &&
+psql rufs_base_development -c "CREATE DATABASE rufs_base;" &&
+
+#Execute rufs-proxy to load and start microservices :
+
+PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_base nodejs ./AuthenticationMicroService.js;
+PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_base nodejs ./rufs-base-es6/proxy.js --add-modules ../rufs-base-es6/AuthenticationMicroService.js;
+#PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_base nodejs --inspect ./rufs-base-es6/AuthenticationMicroService.js;
+
+## Web application
+
+In EcmaScript2017 compliance browser open url
+
+`
+curl -X 'GET' http://localhost:8080/rest/login -d '{}' -H 'Connection: close' -H 'content-type: undefined';
+`
+
+For custom service configuration or user edition, use user 'admin' with password 'admin'.
+rufs-base-es6/README.

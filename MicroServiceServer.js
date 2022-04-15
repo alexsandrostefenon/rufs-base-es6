@@ -96,9 +96,9 @@ class MicroServiceServer {
 		this.config = MicroServiceServer.getArgs(config);
 		this.restServer = express();
 		this.restServer.use(express.urlencoded({extended:true}));
-		this.restServer.use(express.json());
+		this.restServer.use(express.json({limit: "1mb"}));
 		this.restServer.use(bodyParser.raw({type: ["application/octet-stream", "image/jpeg"]}));
-		this.restServer.use(bodyParser.text({type: ["application/text"]}));
+		this.restServer.use(bodyParser.text({type: ["application/text"], limit: "1mb"}));
 		this.restServer.all("*", (req, res, next) => this.expressEndPoint(req, res, next));
 
 		this.expressServer = express();
@@ -254,7 +254,7 @@ class MicroServiceServer {
 	}
 
 	loadOpenApi(fileName) {
-		if (fileName == null) fileName = this.constructor.getArg("openapi-file");
+		if (fileName == null) fileName = this.constructor.getArg("openapi-file", null);
 		if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
 		console.log(`[${this.constructor.name}.loadOpenApi()] loading ${fileName}`);
 		return fsPromises.readFile(fileName).
@@ -262,7 +262,7 @@ class MicroServiceServer {
 			return JSON.parse(text);
 		}).
 		catch(err => {
-			console.log(`[${this.constructor.name}.loadOpenApi()] : fail to parse file :`, err);
+			console.log(`[${this.constructor.name}.loadOpenApi()] : fail to parse file ${fileName}:`, err);
 			return OpenApi.create({}, this.config.security);
 		}).
 		then(openapi => {
