@@ -33,6 +33,7 @@ class RufsServiceMicroService extends RufsMicroService {
 				return this.storeOpenApi(openapi);
 			});
 		}).
+		then(openapi => this.openapi = openapi).
 		catch(err => {
 			console.log("ProcessRequest error : ", err);
 			return Response.internalServerError(err.message);
@@ -55,16 +56,16 @@ class RufsServiceMicroService extends RufsMicroService {
 	}
 
 	processLogin(req) {
-		let access = RequestFilter.checkAuthorization(req, resource, action);
+		let access = RequestFilter.checkAuthorization(this, req);
 		let promise;
 
 		if (access == true) {
 			if (req.method == "PUT") {
-				promise = this.update(req, res, next, resource, action);
+				promise = this.update(req, res, next);
 			} else if (req.method == "DELETE") {
-				promise = this.remove(req, res, next, resource, action);
+				promise = this.remove(req, res, next);
 			} else {
-				promise = super.onRequest(req, res, next, resource, action);
+				promise = super.onRequest(req, res, next);
 			}
 		} else {
 			promise = Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
@@ -73,11 +74,11 @@ class RufsServiceMicroService extends RufsMicroService {
 		return promise;
     }
 	// return a promise
-	onRequest(req, res, next, resource, action) {
+	onRequest(req, res, next) {
 		if (resource == "login") {
 			return this.processLogin(req);
 		} else {
-			return super.onRequest(req, res, next, resource, action);
+			return super.onRequest(req, res, next);
 		}
 	}
 

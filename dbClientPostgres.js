@@ -342,8 +342,8 @@ class DbClientPostgres {
 			this.client = new SqlAdapterPostgres(this.dbConfig);
 		}
 
-		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date"          , "double precision", "bytea"];
-		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","object", "number" , "date-time"                  , "date-time"               , "date-time"             , "integer", "integer" , "string", "date-time"     , "number"          , "string"];
+		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb" , "jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date"          , "double precision", "bytea"];
+		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","object", "array", "number" , "date-time"                  , "date-time"               , "date-time"             , "integer", "integer" , "string", "date-time"     , "number"          , "string"];
 	}
 
 	connect() {

@@ -77,6 +77,7 @@ class MicroServiceServer {
 		config.requestBodyContentType = preferenceConfig.requestBodyContentType || MicroServiceServer.getArg("request_body_content_type", "application/json");
 		config.responseContentType = preferenceConfig.responseContentType || MicroServiceServer.getArg("response_content_type", "application/json");
 		config.security = preferenceConfig.security || MicroServiceServer.getArg("security", "jwt");
+		config.useCamelCaseUpper = preferenceConfig.useCamelCaseUpper || MicroServiceServer.getArg("camel-case-upper", false);
 
 		config.fileNamePrivateKey = preferenceConfig.fileNamePrivateKey || MicroServiceServer.getArg("private-key", "key.pem");
 		config.fileNameCertificate = preferenceConfig.fileNameCertificate || MicroServiceServer.getArg("certificate", "cert.pem");
@@ -151,23 +152,11 @@ class MicroServiceServer {
 		// TODO : in missing port, auto connect to Redbird based server to discover free port and reverse-proxy registration
 	}
 	// return a promise
-	onRequest(req, res, next, resource, action) {
+	onRequest(req, res, next) {
 		return Promise.resolve(Response.unauthorized("Unknow Route"));
 	}
 	// private
 	expressEndPoint(req, res, next) {
-		const paths = req.path.split("/");
-		let resource = null;
-		let action = null;
-
-		if (paths.length >= 2) {
-			resource = CaseConvert.underscoreToCamel (paths[1], false);
-
-			if (paths.length >= 3) {
-				action = paths[2];
-			}
-		}
-
 		console.log(`authorization='${req.get("Authorization")}';`);
 		console.log(`curl -X '${req.method}' ${req.protocol}://${req.get("Host")}${req.originalUrl} -d '${JSON.stringify(req.body)}' -H 'Connection: ${req.get("Connection")}' -H 'content-type: ${req.get("content-type")}' -H 'Accept: ${req.get("Accept")}' --compressed -H "Authorization: $authorization"`);
 		//  -H 'Origin: http://localhost:8080' -H 'Sec-Fetch-Site: same-origin' -H 'Sec-Fetch-Mode: cors' -H 'Referer: http://localhost:8080/crud/' -H 'Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -183,14 +172,14 @@ class MicroServiceServer {
 
 		const queryString = req.url.includes("?") == true ? req.url.substring(req.url.lastIndexOf("?")) : "";
 		req.query = Qs.parse(queryString, {ignoreQueryPrefix: true, allowDots: true});
-		return this.onRequest(req, res, next, resource, action).
+		return this.onRequest(req, res, next).
 		catch(err => {
 			console.error(`[${this.config.appName}] ${req.url} : ${err.message}`);
 			return Response.internalServerError(err.message);
 		}).
 		then(response => {
 			// TODO : registrar em arquivo
-			if (action != "query") console.log(response);
+			if (req.method != "GET") console.log(response);
 			return res.status(response.status).send(response.data);
 		});
 	}
@@ -273,7 +262,8 @@ class MicroServiceServer {
 
 			return openapi;
 		}).
-		then(openapi => OpenApi.convertStandartToRufs(openapi));
+		then(openapi => OpenApi.convertStandartToRufs(openapi)).
+		then(openapi => this.openapi = openapi);
 	}
 
 	storeOpenApi(openapi, fileName) {

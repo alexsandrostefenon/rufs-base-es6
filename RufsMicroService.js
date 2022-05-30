@@ -161,23 +161,24 @@ class RufsMicroService extends MicroServiceServer {
 		this.entityManager = new DbClientPostgres(this.config.dbConfig, {missingPrimaryKeys: this.config.dbMissingPrimaryKeys, missingForeignKeys: this.config.dbMissingForeignKeys, aliasMap: this.config.aliasMap});
 	}
 
-	authenticateUser(userName, userPassword, loginResponse) {
+	authenticateUser(userName, userPassword, remoteAddr) {
 		// sleep one secound to prevent db/disk over access in network atack
 		return new Promise(r => setTimeout(r, 1000)).
-		// trocar por this.fileDbAdapter.reload(["rufsGroup", "rufsGroupOwner", "rufsUser", "rufsGroupUser"]).
-		then(() => this.loadRufsTables()).
 		then(() => {
-			// replace by this.fileDbAdapter.findOne("rufsUser", {"name": userName})
-			let user = Filter.findOne(this.listUser, {"name": userName});
+			const user = Filter.findOne(this.listUser, {"name": userName})
 
-			if (!user || user.password != userPassword)
-				throw "Don't match user and password.";
+			if (!user || user.password != userPassword) {
+				throw "Don't match user and password."
+			}
 
-			// TODO : adjusts user.menu and user.routes to starts with default "rufs" in addr
+			const loginResponse = {};
+			loginResponse.title = "";
 			loginResponse.rufsGroupOwner = user.rufsGroupOwner;
+			loginResponse.roles = user.roles;
 			loginResponse.routes = user.routes;
 			loginResponse.path = user.path;
 			loginResponse.menu = user.menu;
+			loginResponse.groups = [];
 
 			if (loginResponse.rufsGroupOwner) {
 				const item = this.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);
@@ -185,83 +186,58 @@ class RufsMicroService extends MicroServiceServer {
 				if (rufsGroupOwner != null) loginResponse.title = rufsGroupOwner.name + " - " + userName;
 			}
 
-			Filter.find(this.listGroupUser, {"rufsUser": user.id}).forEach(item => loginResponse.tokenPayload.groups.push(item.rufsGroup));
-			// TODO : código temporário para caber o na tela do celular
-			loginResponse.title = userName;
-			return JSON.parse(user.roles);
+			Filter.find(this.listGroupUser, {"rufsUser": user.id}).forEach(item => loginResponse.groups.push(item.rufsGroup));
+			// TODO : fazer expirar no final do expediente diário
+			loginResponse.tokenPayload = {id: user.id, name: user.name, rufsGroupOwner: user.rufsGroupOwner, groups: loginResponse.groups, roles: loginResponse.roles, ip: remoteAddr}
+			return loginResponse
 		});
     }
 	// return a promise
-	onRequest(req, res, next, resource, action) {
-		if (resource == "login") {
-			const getRolesMask = roles => {
-				const ret = {};
-
-				for (let [schemaName, role] of Object.entries(roles)) {
-					let mask = 0;
-					if (role["get"] == undefined) mask |= 1 << 0;
-					if (role["get"] == true)      mask |= 1 << 0;
-					if (role["post"] == true)     mask |= 1 << 1;
-					if (role["patch"] == true)    mask |= 1 << 2;
-					if (role["put"] == true)      mask |= 1 << 3;
-					if (role["delete"] == true)   mask |= 1 << 4;
-					ret[schemaName] = mask;
-				}
-
-				return ret;
-			}
-
+	onRequest(req, res, next) {
+		if (req.path == "/login") {
 			const userName = req.body.user;
-			const loginResponse = {};
-			loginResponse.tokenPayload = {"ip": req.ip, "name": userName, "rufsGroupOwner": null, "groups": [], "roles": {}};
-			loginResponse.title = "";
-			loginResponse.menu = null;
-			loginResponse.path = "";
-			loginResponse.routes = null;
-			loginResponse.rufsGroupOwner = null;
-			loginResponse.openapi = {};
-			return this.authenticateUser(userName, req.body.password, loginResponse).
-			then(roles => {
+			return this.authenticateUser(userName, req.body.password, req.ip).then(loginResponse => {
 				if (userName == "admin") {
 					loginResponse.openapi = this.entityManager.dataStoreManager.openapi;
 				} else {
-					loginResponse.openapi = OpenApi.create({});
-					OpenApi.copy(loginResponse.openapi, this.entityManager.dataStoreManager.openapi, roles);
-					this.storeOpenApi(loginResponse.openapi, `openapi-${userName}.json`);
+					//loginResponse.openapi = OpenApi.create({});
+					//OpenApi.copy(loginResponse.openapi, this.entityManager.dataStoreManager.openapi, loginResponse.roles);
+					loginResponse.openapi = this.entityManager.dataStoreManager.openapi;
 				}
-
-				loginResponse.tokenPayload.roles = getRolesMask(roles);
-				// TODO : fazer expirar no final do expediente diário
-				loginResponse.tokenPayload.rufsGroupOwner = loginResponse.rufsGroupOwner;
 				// warning tokenPayload is http.header size limited to 8k
-				loginResponse.tokenPayload = jwt.sign(loginResponse.tokenPayload, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
+				loginResponse.JwtHeader = jwt.sign(loginResponse.tokenPayload, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
+				return Response.ok(loginResponse)
 			}).
-			then(() => Response.ok(loginResponse)).
 			catch(msg => Response.unauthorized(msg));
 		} else {
-			let access = RequestFilter.checkAuthorization(req, resource, action);
+			let access = RequestFilter.checkAuthorization(this, req);
 			if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
 
-			if (resource == "rufsService" && req.method == "GET" && action == "query") {
+			if (req.path == "/rufs_service" && req.method == "GET") {
 				const list = OpenApi.getList(Qs, OpenApi.convertRufsToStandart(this.openapi, true), true, req.tokenPayload.roles);
 				return Promise.resolve(Response.ok(list));
 			}
 
-			return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
+			const serviceName = CaseConvert.underscoreToCamel(req.path.substring(1))
+			let entityManager = this.entityManager
+
+			if (this.fileDbAdapter.fileTables.has(serviceName) == true) {
+				entityManager = this.fileDbAdapter;
+			}
+	
+			let obj = null;
+	
+			if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
+				obj = req.body;
+			}
+	
+			const rf = new RequestFilter(req.path, req.method.toLowerCase(), req.query, req.tokenPayload, obj, entityManager, this, false)
+			return rf.processRequest();
 		}
 	}
 
 	loadRufsTables() {
-		const loadTable = (name, defaultRows) => {
-			return this.entityManager.
-			find(name).
-			catch(() => {
-				console.log(`[${this.constructor.name}.loadRufsTables.loadTable(${name})] : loading fileDbAdapter data.`);
-				return this.fileDbAdapter.load(name).
-				then(rows => rows.length == 0 && defaultRows && defaultRows.length > 0 ? this.fileDbAdapter.store(name, defaultRows) : rows).catch(() => this.fileDbAdapter.store(name, defaultRows));
-			});
-		}
-
+		const loadTable = (name, defaultRows) => this.entityManager.find(name).catch(() => this.fileDbAdapter.load(name, defaultRows))
 		return this.loadOpenApi().
 		then(openapi => {
 			this.fileDbAdapter = new FileDbAdapter(openapi);
@@ -279,19 +255,9 @@ class RufsMicroService extends MicroServiceServer {
 		then(rows => this.listUser = rows);
 	}
 
-	expressEndPoint(req, res, next) {
-		let promise;
-
-		if (this.fileDbAdapter == undefined) {
-			promise = this.loadRufsTables();
-		} else {
-			promise = Promise.resolve();
-		}
-
-		return promise.then(() => super.expressEndPoint(req, res, next));
-	}
-
 	listen() {
+		const openApiRufs = OpenApi.convertStandartToRufs(JSON.parse(RufsMicroService.openApiRufs));
+
 		const createRufsTables = () => {
 			if (this.config.checkRufsTables != true)
 				return Promise.resolve();
@@ -299,7 +265,13 @@ class RufsMicroService extends MicroServiceServer {
 			return this.entityManager.getOpenApi().
 			then(openapi => {
 				let tablesMissing = new Map();
-				for (let name in RufsMicroService.openApiRufs.components.schemas) if (openapi.components.schemas[name] == undefined) tablesMissing.set(name, RufsMicroService.openApiRufs.components.schemas[name]);
+
+				for (let [name, schema] of Object.entries(openApiRufs.components.schemas)) {
+					if (openapi.components.schemas[name] == undefined) {
+						tablesMissing.set(name, schema)
+					}
+				}
+
 				const rufsServiceDbSync = new RufsServiceDbSync(this.entityManager);
 
 				const createTable = iterator => {
@@ -381,11 +353,11 @@ class RufsMicroService extends MicroServiceServer {
 				return this.loadOpenApi().
 				then(openapi => {
 					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
-					OpenApi.fillOpenApi(openApiDb, {schemas: RufsMicroService.openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType});
+					OpenApi.fillOpenApi(openApiDb, {schemas: openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType});
 /*
-					for (let name in RufsMicroService.openApiRufs.components.schemas) {
+					for (let name in openApiRufs.components.schemas) {
 						if (openApiDb.components.schemas[name] == undefined) {
-							openApiDb.components.schemas[name] = RufsMicroService.openApiRufs.components.schemas[name];
+							openApiDb.components.schemas[name] = openApiRufs.components.schemas[name];
 						}
 					}
 */
@@ -409,7 +381,8 @@ class RufsMicroService extends MicroServiceServer {
 					}
 
 					return this.storeOpenApi(openapi);
-				});
+				}).
+				then(openapi => this.openapi = openapi);
 			});
 		}
 
@@ -420,6 +393,7 @@ class RufsMicroService extends MicroServiceServer {
 		then(openapi => {
 			console.log(`[${this.constructor.name}.listen()] openapi after syncDb2OpenApi`);
 			return Promise.resolve().
+			then(() => this.loadRufsTables()).
 			then(() => {
 				return RequestFilter.updateRufsServices(this.entityManager, openapi);
 			}).
@@ -428,15 +402,21 @@ class RufsMicroService extends MicroServiceServer {
 		});
 	}
 
+	loadOpenApi(fileName) {
+		return super.loadOpenApi(fileName).then(openapi => {
+			const openApiRufs = OpenApi.convertStandartToRufs(JSON.parse(RufsMicroService.openApiRufs))
+			OpenApi.fillOpenApi(openapi, {schemas: openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType});
+			return openapi
+		});
+	}
 }
 
-RufsMicroService.schemaProperties = {
-	// OpenApi / JSON Schema
-	"x-required":{"type": "boolean", "orderIndex": 1, "sortType": "asc"},
-	"nullable":{"type": "boolean", "orderIndex": 2, "sortType": "asc"},
+RufsMicroService.schemaProperties = `{
+	"x-required":{"type": "boolean", "x-orderIndex": 1, "x-sortType": "asc"},
+	"nullable":{"type": "boolean", "x-orderIndex": 2, "x-sortType": "asc"},
 	"type":{"options": ["string", "integer", "boolean", "number", "date-time", "date", "time"]},
-	"properties":{"type": "object", properties: {}},
-	"items":{"type": "object", properties: {}},
+	"properties":{"type": "object", "properties": {}},
+	"items":{"type": "object", "properties": {}},
 	"maxLength":{"type": "integer"},
 	"format":{},
 	"pattern":{},
@@ -446,62 +426,63 @@ RufsMicroService.schemaProperties = {
 	"default":{},
 	"example":{},
 	"description":{}
-};
+}`
 
-RufsMicroService.openApiRufs = {
-	components: {
-		schemas: {
-			rufsGroupOwner: {
-				properties: {
-					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-					name: {nullable: false, unique:true}
+RufsMicroService.openApiRufs = `{
+	"components": {
+		"schemas": {
+			"rufsGroupOwner": {
+				"properties": {
+					"id":   {"type": "integer", "x-identityGeneration": "BY DEFAULT"},
+					"name": {"nullable": false, "unique": true}
 				},
-				"primaryKeys": ["id"]
+				"x-primaryKeys": ["id"]
 			},
-			rufsUser: {
-				properties: {
-					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-					rufsGroupOwner: {type: "integer", nullable: false, $ref: "#/components/schemas/rufsGroupOwner"},
-					name: {maxLength: 32, nullable: false, unique:true},
-					password: {nullable: false},
-					roles: {maxLength: 102400},
-					routes: {maxLength: 102400},
-					path: {},
-					menu: {maxLength: 102400, nullable: true}
+			"rufsUser": {
+				"properties": {
+					"id":             {"type": "integer", "x-identityGeneration": "BY DEFAULT"},
+					"rufsGroupOwner": {"type": "integer", "nullable": false, "x-$ref": "#/components/schemas/rufsGroupOwner"},
+					"name":           {"maxLength": 32, "nullable": false, "unique": true},
+					"password":       {"nullable": false},
+					"path":           {},
+					"roles":          {"type": "array", "items": {"properties": {"name": {"type": "string"}, "mask": {"type": "integer"}}}},
+					"routes":         {"type": "array", "items": {"properties": {"path": {"type": "string"}, "controller": {"type": "string"}, "templateUrl": {"type": "string"}}}},
+					"menu":           {"type": "object", "properties": {"menu": {"type": "string"}, "label": {"type": "string"}, "path": {"type": "string"}}}
 				},
-				"primaryKeys": ["id"],
-				"uniqueKeys": {}
+				"x-primaryKeys": ["id"],
+				"x-uniqueKeys":  {}
 			},
-			rufsGroup: {
-				properties: {
-					id: {type: "integer", identityGeneration: "BY DEFAULT", primaryKey: true},
-					name: {nullable: false, unique:true}
+			"rufsGroup": {
+				"properties": {
+					"id":   {"type": "integer", "x-identityGeneration": "BY DEFAULT"},
+					"name": {"nullable": false, "unique": true}
 				},
-				"primaryKeys": ["id"]
+				"x-primaryKeys": ["id"]
 			},
-			rufsGroupUser: {
-				properties: {
-					rufsUser: {type: "integer", primaryKey: true, nullable: false, $ref: "#/components/schemas/rufsUser"},
-					rufsGroup: {type: "integer", primaryKey: true, nullable: false, $ref: "#/components/schemas/rufsGroup"}
+			"rufsGroupUser": {
+				"properties": {
+					"rufsUser":  {"type": "integer", "nullable": false, "x-$ref": "#/components/schemas/rufsUser"},
+					"rufsGroup": {"type": "integer", "nullable": false, "x-$ref": "#/components/schemas/rufsGroup"}
 				},
-				"primaryKeys": ["rufsUser", "rufsGroup"],
-				"uniqueKeys": {}
+				"x-primaryKeys": ["rufsUser", "rufsGroup"],
+				"x-uniqueKeys":  {}
 			},
-			rufsService: {
-				properties: {
-					operationId: {primaryKey: true},
-					path: {},
-					method: {},
-					parameter: {"type": "object", "properties": RufsMicroService.schemaProperties},
-					requestBody: {"type": "object", "properties": RufsMicroService.schemaProperties},
-					response: {"type": "object", "properties": RufsMicroService.schemaProperties}
+			"rufsService": {
+				"properties": {
+					"operationId": {},
+					"path":        {},
+					"method":      {},
+					"parameter":   {"type": "object", "properties": ` + RufsMicroService.schemaProperties + `},
+					"requestBody": {"type": "object", "properties": ` + RufsMicroService.schemaProperties + `},
+					"response":    {"type": "object", "properties": ` + RufsMicroService.schemaProperties + `}
 				},
-				"primaryKeys": ["operationId"],
-				"uniqueKeys": {}
+				"x-primaryKeys": ["operationId"],
+				"x-uniqueKeys": {}
 			}
 		}
 	}
-};
+}
+`
 
 RufsMicroService.defaultGroupOwnerAdmin = {
 //	id: 1,
@@ -509,10 +490,40 @@ RufsMicroService.defaultGroupOwnerAdmin = {
 };
 
 RufsMicroService.defaultUserAdmin = {
-//	id: 1, 
-	name: "admin", rufsGroupOwner: 1, password: HttpRestRequest.MD5("admin"), path: "rufs_user/search",
-	roles: '{"rufsGroupOwner":{"post":true,"put":true,"delete":true},"rufsUser":{"post":true,"put":true,"delete":true},"rufsGroup":{"post":true,"put":true,"delete":true},"rufsGroupUser":{"post":true,"put":true,"delete":true}}',
-	routes: '[{"path": "/app/rufs_service/:action", "controller": "OpenApiOperationObjectController"}, {"path": "/app/rufs_user/:action", "controller": "UserController"}]'
+//	"id": 1,
+	"name": "admin",
+	"rufsGroupOwner": 1,
+	"password": "21232f297a57a5a743894a0e4a801fc3",
+	"path": "rufs_user/search",
+	"menu": {},
+	"roles": [
+		{
+			"mask": 31,
+			"path": "/rufs_group_owner"
+		},
+		{
+			"mask": 31,
+			"path": "/rufs_user"
+		},
+		{
+			"mask": 31,
+			"path": "/rufs_group"
+		},
+		{
+			"mask": 31,
+			"path": "/rufs_group_user",
+		}
+	],
+	"routes": [
+		{
+			"controller": "OpenApiOperationObjectController",
+			"path": "/app/rufs_service/:action"
+		},
+		{
+			"controller": "UserController",
+			"path": "/app/rufs_user/:action"
+		}
+	]
 };
 
 RufsMicroService.checkStandalone();

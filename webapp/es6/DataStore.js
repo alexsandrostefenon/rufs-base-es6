@@ -156,7 +156,7 @@ class DataStore extends RufsSchema {
 			let primaryKey = this.getPrimaryKey(data);
 			let pos = -1;
 
-			if (Object.entries(primaryKey).length > 0) {
+			if (primaryKey != null && Object.entries(primaryKey).length > 0) {
 				pos = this.findPos(primaryKey);
 			}
 
@@ -251,14 +251,19 @@ class DataStoreManager {
 		this.setSchemas(list, openapi);
 	}
 
-	getSchema($ref, tokenData) {
-		$ref = OpenApi.getSchemaName($ref);
-		const serviceName = CaseConvert.underscoreToCamel($ref, false);
+	getSchema($ref, tokenPayload) {
+		const schemaName = OpenApi.getSchemaName($ref);
+		const serviceName = CaseConvert.underscoreToCamel(schemaName, false);
+		const path = "/" + CaseConvert.camelToUnderscore(schemaName, false);
 
-		if (tokenData && tokenData.roles[serviceName] == undefined) {
-			throw new Error("Unauthorized service Access");
+		if (tokenPayload && tokenPayload.roles && tokenPayload.roles.find(item => item.path == path) == null) {
+			throw new Error(`Unauthorized service Access : ${path}`);
 		}
-
+/*
+		if (this.services[serviceName] == null) {
+			throw new Error(`Missing service ${schemaName}`);
+		}
+*/
 		const service = this.services[serviceName];
 		return service;
 	}
@@ -279,7 +284,7 @@ class DataStoreManager {
         	return Promise.resolve(null);
 	}
 
-	getDocument(service, obj, merge, tokenData) {
+	getDocument(service, obj, merge, tokenPayload) {
 		const getPrimaryKeyForeignList = (schema, obj) => {
 			const list = [];
 
@@ -330,7 +335,7 @@ class DataStoreManager {
 			const dependents = this.getDependents(service.name, true);
 
 			for (let item of dependents) {
-				const rufsServiceOther = this.getSchema(item.table, tokenData);
+				const rufsServiceOther = this.getSchema(item.table, tokenPayload);
 				if (rufsServiceOther == null) continue;
 				let field = rufsServiceOther.properties[item.field];
 				let foreignKey = this.getForeignKey(rufsServiceOther, item.field, obj);

@@ -149,7 +149,14 @@ class HttpRestRequest {
 	}
 
 	get(path, params) {
-		return this.request(path, "GET", params, null);
+		return this.request(path, "GET", params, null).
+		then(resp => {
+			if (Array.isArray(resp) && resp.length == 1) {
+				return resp[0]
+			}
+
+			return resp
+		});
 	}
 
 	query(path, params) {
@@ -227,7 +234,7 @@ class RufsService extends DataStoreItem {
 	}
 
 	queryRemote(params) {
-        return this.httpRest.query(this.pathRest + "/query", params).then(list => {
+        return this.httpRest.query(this.pathRest, params).then(list => {
 			for (let [fieldName, field] of Object.entries(this.properties))
 				if (field.type.includes("date") || field.type.includes("time"))
 					list.forEach(item => item[fieldName] = new Date(item[fieldName]));
@@ -334,24 +341,26 @@ class ServerConnection extends DataStoreManager {
     	this.httpRest = new HttpRestRequest(this.url);
     	return this.httpRest.request(loginPath, "POST", null, {"user":user, "password":password}).
     	then(loginResponse => {
+			OpenApi.convertStandartToRufs(loginResponse.openapi)
     		this.title = loginResponse.title;
 			this.rufsGroupOwner = loginResponse.rufsGroupOwner;
 			this.routes = loginResponse.routes;
 			this.path = loginResponse.path;
 			this.userMenu = loginResponse.menu;
-    		this.httpRest.setToken(loginResponse.tokenPayload);
+    		this.httpRest.setToken(loginResponse.JwtHeader);
     		const schemas = [];
             // depois carrega os serviços autorizados
-			// TODO : trocar openapi.components.schemas por openapi.paths
-			for (let [schemaName, schema] of Object.entries(loginResponse.openapi.components.schemas)) {
+			for (let role of loginResponse.roles) {
+				const schemaName = CaseConvert.underscoreToCamel(role.path.substring(1))
+				const schema = loginResponse.openapi.components.schemas[schemaName]
 				if (schema.appName == undefined) schema.appName = path;
 				const service = this.services[schemaName] = new RufsServiceClass(schemaName, schema, this, this.httpRest);
-				const methods = ["get", "post", "patch", "put", "delete"];
-				const servicePath = loginResponse.openapi.paths["/" + schemaName];
 				service.access = {};
 
-				for (let method of methods) {
-					if (servicePath[method] != undefined)
+				for (let i = 0; i < OpenApi.methods.length; i++) {
+					const method = OpenApi.methods[i]
+
+					if ((role.mask & (1 << i)) != 0)
 						service.access[method] = true;
 					else
 						service.access[method] = false;
@@ -372,10 +381,11 @@ class ServerConnection extends DataStoreManager {
     			}
     		}
 
-    		if (user == "admin") listDependencies = ["rufsUser", "rufsGroupOwner", "rufsGroup", "rufsGroupUser"];
+//    		if (user == "admin") listDependencies = ["rufsUser", "rufsGroupOwner", "rufsGroup", "rufsGroupUser"];
     		const listQueryRemote = [];
 
     		for (let $ref of listDependencies) {
+				console.log(`login ${$ref}`)
     			const service = this.getSchema($ref);
 
 				if (service.access.get == true) {

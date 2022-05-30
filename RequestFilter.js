@@ -30,21 +30,13 @@ class DataStoreManagerDb extends DataStoreManager {
 
 class RequestFilter {
 // private to create,update,delete,read
-	static checkObjectAccess(entityManager, tokenData, serviceName, obj) {
-		let service;
-
-		try {
-			service = RequestFilter.getSchema(entityManager, tokenData, serviceName);
-		} catch (e) {
-			return Response.unauthorized(e.Message);
-		}
-
+	checkObjectAccess() {
 		let response = null;
-		const userRufsGroupOwner = entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
-		const rufsGroupOwnerEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
+		const userRufsGroupOwner = this.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", this.tokenPayload);
+		const rufsGroupOwnerEntries = this.entityManager.dataStoreManager.getForeignKeyEntries(this.serviceName, "rufsGroupOwner");
 
 		if (userRufsGroupOwner != undefined && userRufsGroupOwner.primaryKey.id > 1 && rufsGroupOwnerEntries.length > 0) {
-			const objRufsGroupOwner = entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
+			const objRufsGroupOwner = entityManager.dataStoreManager.getPrimaryKeyForeign(this.serviceName, "rufsGroupOwner", this.obj);
 
 			if (objRufsGroupOwner == undefined) {
 				obj.rufsGroupOwner = userRufsGroupOwner.primaryKey.id;
@@ -53,9 +45,9 @@ class RequestFilter {
 			}
 
 			if (objRufsGroupOwner.primaryKey.id == userRufsGroupOwner.primaryKey.id) {
-				const rufsGroup = entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
+				const rufsGroup = this.entityManager.dataStoreManager.getPrimaryKeyForeign(this.serviceName, "rufsGroup", this.obj);
 
-				if (rufsGroup != undefined && tokenData.groups.indexOf(rufsGroup.primaryKey.id) < 0) {
+				if (rufsGroup != undefined && this.tokenPayload.groups.indexOf(rufsGroup.primaryKey.id) < 0) {
 					response = Response.unauthorized("unauthorized object rufsGroup");
 				}
 			} else {
@@ -65,121 +57,111 @@ class RequestFilter {
 
 		return response;
 	}
-	//
-	static getSchema(entityManager, tokenData, serviceName) {
-		return entityManager.dataStoreManager.getSchema(serviceName, tokenData);
-	}
 	// public
-	static processCreate(user, entityManager, serviceName, obj, microService) {
-		const response = RequestFilter.checkObjectAccess(entityManager, user, serviceName, obj);
+	processCreate() {
+		const response = this.checkObjectAccess();
 
 		if (response != null) Promise.resolve(response);
 
-		return entityManager.insert(serviceName, obj).then(newObj => {
-			const primaryKey = RequestFilter.notify(microService, newObj, serviceName, false);
+		return this.entityManager.insert(this.serviceName, this.obj).then(newObj => {
+			const primaryKey = this.notify(newObj, false);
 			// force read, cases of triggers before break result value
-			return entityManager.findOne(serviceName, primaryKey).then(_obj => Response.ok(_obj));
+			return this.entityManager.findOne(this.serviceName, primaryKey).then(_obj => Response.ok(_obj));
 		});
 	}
 	// public
-	static getObject(tokenData, queryParams, entityManager, serviceName, useDocument) {
-		const primaryKey = RequestFilter.parseQueryParameters(entityManager, tokenData, serviceName, queryParams, true);
-		return entityManager.findOne(serviceName, primaryKey).
+	getObject() {
+		const primaryKey = this.parseQueryParameters(true);
+		return this.entityManager.findOne(this.serviceName, primaryKey).
 		then(obj => {
-			if (useDocument != true) return obj;
-			const service = this.getSchema(entityManager, tokenData, serviceName);
-			return entityManager.dataStoreManager.getDocument(service, obj, true, tokenData);
+			if (this.useDocument != true) return obj;
+			return this.entityManager.dataStoreManager.getDocument(this.service, obj, true, this.tokenPayload);
 		}).
 		catch(error => {
 			throw new Error(`[RequestFilter.getObject] for service ${serviceName}, fail to find object with primaryKey ${JSON.stringify(primaryKey)} : ` + error.message);
 		});
 	}
 	// public processRead
-	static processRead(user, queryParams, entityManager, serviceName, useDocument) {
-		return RequestFilter.getObject(user, queryParams, entityManager, serviceName, useDocument).then(obj => Response.ok(obj));
+	processRead() {
+		return this.getObject().then(obj => Response.ok(obj));
 	}
 	// public processUpdate
-	static processUpdate(user, queryParams, entityManager, serviceName, obj, microService) {
-		return RequestFilter.getObject(user, queryParams, entityManager, serviceName).then(oldObj => {
-			const response = RequestFilter.checkObjectAccess(entityManager, user, serviceName, obj);
+	processUpdate() {
+		return this.getObject().then(oldObj => {
+			const response = this.checkObjectAccess();
 
 			if (response != null) return Promise.resolve(response);
 
-			return entityManager.update(serviceName, RequestFilter.parseQueryParameters(entityManager, user, serviceName, queryParams, true), obj).then(newObj => {
-				const primaryKey = RequestFilter.notify(microService, newObj, serviceName, false);
+			return this.entityManager.update(this.serviceName, this.parseQueryParameters(true), this.obj).then(newObj => {
+				const primaryKey = this.notify(newObj, false);
 				// force read, cases of triggers before break result value
-				return entityManager.findOne(serviceName, primaryKey).then(_obj => Response.ok(_obj));
+				return this.entityManager.findOne(this.serviceName, primaryKey).then(_obj => Response.ok(_obj));
 			});
 		});
 	}
 	// public processDelete
-	static processDelete(user, queryParams, entityManager, serviceName, microService) {
-		return RequestFilter.getObject(user, queryParams, entityManager, serviceName).then(obj => {
-			return entityManager.deleteOne(serviceName, RequestFilter.parseQueryParameters(entityManager, user, serviceName, queryParams, true)).then(objDeleted => {
-				RequestFilter.notify(microService, objDeleted, serviceName, true);
+	processDelete() {
+		return this.getObject().then(obj => {
+			return this.entityManager.deleteOne(this.serviceName, this.parseQueryParameters(true)).then(objDeleted => {
+				this.notify(objDeleted, true);
 				return Response.ok(objDeleted);
 			});
 		});
 	}
 	// public
-	static processPatch(user, entityManager, serviceName, obj, microService) {
-		const response = RequestFilter.checkObjectAccess(entityManager, user, serviceName, obj);
+	processPatch() {
+		const response = this.checkObjectAccess();
 
 		if (response != null) Promise.resolve(response);
 
-		const service = RequestFilter.getSchema(entityManager, user, serviceName);
-
 		const process = keys => {
 			if (keys.length > 0) {
-				return entityManager.findOne(serviceName, keys.pop()).catch(() => process(keys));
+				return this.entityManager.findOne(this.serviceName, keys.pop()).catch(() => process(keys));
 			} else {
 				return Promise.resolve(null);
 			}
 		};
 
-		return process(service.getKeys(obj)).then(foundObj => {
+		return process(this.service.getKeys(this.obj)).then(foundObj => {
 			if (foundObj != null) {
-				const primaryKey = service.getPrimaryKey(foundObj);
-				return RequestFilter.processUpdate(user, primaryKey, entityManager, serviceName, obj, microService);
+				return this.processUpdate();
 			} else {
-				return RequestFilter.processCreate(user, entityManager, serviceName, obj, microService);
+				return this.processCreate();
 			}
 		});
 	}
 	// private
-	static parseQueryParameters(entityManager, tokenData, serviceName, queryParameters, onlyPrimaryKey) {
+	parseQueryParameters(onlyPrimaryKey) {
 		// se não for admin, limita os resultados para as rufsGroup vinculadas a empresa do usuário
-		const userRufsGroupOwner = tokenData.rufsGroupOwner;
-		const rufsGroupOwnerEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
-		const rufsGroupEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroup");
+		const userRufsGroupOwner = this.tokenPayload.rufsGroupOwner;
+		const rufsGroupOwnerEntries = this.entityManager.dataStoreManager.getForeignKeyEntries(this.serviceName, "rufsGroupOwner");
+		const rufsGroupEntries = this.entityManager.dataStoreManager.getForeignKeyEntries(this.serviceName, "rufsGroup");
 
 		if (userRufsGroupOwner > 1) {
-			if (rufsGroupOwnerEntries.length > 0) queryParameters[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
-			if (rufsGroupEntries.length > 0) queryParameters[rufsGroupEntries[0].fieldName] = tokenData.groups;
+			if (rufsGroupOwnerEntries.length > 0) this.queryParams[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
+			if (rufsGroupEntries.length > 0) this.queryParams[rufsGroupEntries[0].fieldName] = this.tokenPayload.groups;
 		}
 
-		const service = RequestFilter.getSchema(entityManager, tokenData, serviceName);
-		const obj = OpenApi.copyFields(service, queryParameters);
+		const obj = OpenApi.copyFields(this.service, this.queryParams);
 		let ret;
 
 		if (onlyPrimaryKey == true)
-			ret = service.getPrimaryKey(obj);
+			ret = this.service.getPrimaryKey(obj);
 		else
 			ret = obj;
 
-		if (queryParameters.filter != undefined) ret.filter = OpenApi.copyFields(service, queryParameters.filter);
-		if (queryParameters.filterRangeMin != undefined) ret.filterRangeMin = OpenApi.copyFields(service, queryParameters.filterRangeMin);
-		if (queryParameters.filterRangeMax != undefined) ret.filterRangeMax = OpenApi.copyFields(service, queryParameters.filterRangeMax);
+		if (this.queryParams.filter != undefined) ret.filter = OpenApi.copyFields(this.service, this.queryParams.filter);
+		if (this.queryParams.filterRangeMin != undefined) ret.filterRangeMin = OpenApi.copyFields(this.service, this.queryParams.filterRangeMin);
+		if (this.queryParams.filterRangeMax != undefined) ret.filterRangeMax = OpenApi.copyFields(this.service, this.queryParams.filterRangeMax);
 		return ret;
 	}
 	// public
-	static processQuery(tokenData, queryParams, entityManager, serviceName) {
-		const fields = Object.entries(queryParams).length > 0 ? RequestFilter.parseQueryParameters(entityManager, tokenData, serviceName, queryParams) : null;
+	processQuery() {
+		const fields = Object.entries(this.queryParams).length > 0 ? this.parseQueryParameters() : null;
 		let orderBy = [];
-		const service = RequestFilter.getSchema(entityManager, tokenData, serviceName);
 
-		for (let fieldName of service.primaryKeys) {
-			const field = service.properties[fieldName];
+		for (let fieldName of this.service.primaryKeys) {
+			const field = this.service.properties[fieldName];
 			const type = field.type;
 
 			if (type != undefined) {
@@ -189,98 +171,103 @@ class RequestFilter {
 			}
 		}
 
-		return entityManager.find(serviceName, fields, orderBy).then(results =>
+		return this.entityManager.find(this.serviceName, fields, orderBy).then(results =>
 			Response.ok(results)
 		);
 	}
 	// public
-	static checkAuthorization(req, serviceName, uriPath) {
-		const getRolesUnMask = roles => {
-			const ret = {};
-
-			for (let [schemaName, mask] of Object.entries(roles)) {
-				let role = {};
-				role["get"]    = (mask & (1 << 0)) != 0;
-				role["post"]   = (mask & (1 << 1)) != 0;
-				role["patch"]  = (mask & (1 << 2)) != 0;
-				role["put"]    = (mask & (1 << 3)) != 0;
-				role["delete"] = (mask & (1 << 4)) != 0;
-				ret[schemaName] = role;
+	static checkAuthorization(microService, req) {
+		const extractTokenPayload = tokenRaw => {
+			let tokenPayload;
+	
+			if (tokenRaw != undefined) {
+				try {
+					const token = tokenRaw
+					tokenPayload = jwt.verify(token, process.env.JWT_SECRET || "123456");
+				} catch (err) {
+					throw new Error("JWT Authorization fail : " + err);
+				}
+			} else {
+				throw new Error("Authorization token header invalid");
 			}
-
-			return ret;
+	
+			return tokenPayload;
 		}
 
-		try {
-			req.tokenPayload = RequestFilter.extractTokenPayload(req.get("Authorization"));
-		} catch (err) {
-			return false;
-		}
+		for (const securityItem of microService.openapi.security) {
+			for (const securityName in securityItem) {
+				const securityScheme = microService.openapi.components.securitySchemes[securityName]
 
-		req.tokenPayload.roles = getRolesUnMask(req.tokenPayload.roles);
+				if (securityScheme != null) {
+					if (securityScheme.type == "http" && securityScheme.scheme == "bearer" && securityScheme.bearerFormat == "JWT") {
+						const authorizationHeaderPrefix = "Bearer ";
+						let tokenRaw = req.get("Authorization")
+
+						if (tokenRaw.startsWith(authorizationHeaderPrefix)) {
+							tokenRaw = tokenRaw.substring(authorizationHeaderPrefix.length)
+
+							try {
+								req.tokenPayload = extractTokenPayload(tokenRaw);
+							} catch (err) {
+								return false;
+							}
+						}
+					} else if (securityScheme.type == "apiKey") {
+						if (securityScheme.in == "header") {
+							const tokenRaw = req.get(securityScheme.name)
+							const user = microService.fileDbAdapter.findOneSync("rufsUser", {"password": tokenRaw});
+							if (user == null) return false
+							req.tokenPayload = user
+						}
+					}
+				}
+			}
+		}
 
 		let access = false;
-		const serviceAuth = req.tokenPayload.roles[serviceName];
+		const role = req.tokenPayload.roles.find(role => role.path == req.path)
 		// verfica a permissao de acesso
-		if (serviceAuth != undefined) {
-			if (uriPath == undefined || uriPath == "") {
-				uriPath = req.method.toLowerCase();
-			} else if (req.method.toLowerCase() == "get" && uriPath == "query") {
-				uriPath = "get";
-			}
+		if (role != undefined) {
+			const idx = OpenApi.methods.indexOf(req.method.toLowerCase());
 
-			if (serviceAuth[uriPath] != undefined) {
-				access = serviceAuth[uriPath];
+			if (idx >= 0 && role.mask & (1 << idx) != 0) {
+				access = true
 			}
 		}
 
 		return access;
 	}
-	// public
-	static extractTokenPayload(authorizationHeader) {
-		let tokenData;
-		const authorizationHeaderPrefix = "Bearer ";
 
-		if (authorizationHeader != undefined && authorizationHeader.startsWith(authorizationHeaderPrefix)) {
-			try {
-				const token = authorizationHeader.substring(authorizationHeaderPrefix.length);
-				tokenData = jwt.verify(token, process.env.JWT_SECRET || "123456");
-			} catch (err) {
-				throw new Error("JWT Authorization fail : " + err);
-			}
-		} else {
-			throw new Error("Authorization token header invalid");
-		}
+	constructor(path, method, queryParams, tokenPayload, obj, entityManager, microService, useDocument) {
+		this.path = path
+		this.method = method
+		this.queryParams = queryParams
+		this.tokenPayload = tokenPayload
+		this.obj = obj
+		this.entityManager = entityManager
+		this.microService = microService
+		this.serviceName = CaseConvert.underscoreToCamel(path.substring(1))
+		this.useDocument = useDocument
+		this.service = entityManager.dataStoreManager.getSchema(this.serviceName, tokenPayload)
+		this.schemaResponse = OpenApi.getResponseSchema(entityManager.openapi, path, method)
 
-		return tokenData;
 	}
 	// processRequest
-	static processRequest(req, res, next, entityManager, microService, serviceName, uriPath, useDocument) {
-		if (microService.fileDbAdapter.fileTables.has(serviceName) == true) {
-			entityManager = microService.fileDbAdapter;
-		}
-
-		const queryParams = req.query;
-		let obj = null;
-
-		if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
-			obj = req.body;
-		}
-
+	processRequest() {
 		let cf;
 
-		if (req.method == "GET" && uriPath == "query") {
-			cf = RequestFilter.processQuery(req.tokenPayload, queryParams, entityManager, serviceName);
-		} else if (req.method == "POST") {
-			cf = RequestFilter.processCreate(req.tokenPayload, entityManager, serviceName, obj, microService);
-		} else if (req.method == "PUT") {
-			cf = RequestFilter.processUpdate(req.tokenPayload, queryParams, entityManager, serviceName, obj, microService);
-		} else if (req.method == "PATCH") {
-			cf = RequestFilter.processPatch(req.tokenPayload, entityManager, serviceName, obj, microService);
-		} else if (req.method == "DELETE") {
-			cf = RequestFilter.processDelete(req.tokenPayload, queryParams, entityManager, serviceName, microService);
-		} else if (req.method == "GET") {
-			cf = RequestFilter.processRead(req.tokenPayload, queryParams, entityManager, serviceName, useDocument);
+		if (this.method == "get" && this.schemaResponse != null && this.schemaResponse.type == "array") {
+			cf = this.processQuery();
+		} else if (this.method == "post") {
+			cf = this.processCreate();
+		} else if (this.method == "put") {
+			cf = this.processUpdate();
+		} else if (this.method == "patch") {
+			cf = this.processPatch();
+		} else if (this.method == "delete") {
+			cf = this.processDelete();
+		} else if (this.method == "get") {
+			cf = this.processRead();
 		} else {
 			return Promise.resolve(Response.internalServerError("unknow rote"));
 		}
@@ -291,11 +278,10 @@ class RequestFilter {
 		});
 	}
 	// This method sends the same Bidding object to all opened sessions
-	static notify(microService, obj, serviceName, isRemove) {
-        const service = microService.entityManager.dataStoreManager.services[serviceName];
-		const primaryKey = service.getPrimaryKey(obj);
+	notify(obj, isRemove) {
+		const primaryKey = this.service.getPrimaryKey(obj);
 		var msg = {};
-		msg.service = serviceName;
+		msg.service = this.serviceName;
 		msg.primaryKey = primaryKey;
 
 		if (isRemove == false) {
@@ -305,23 +291,23 @@ class RequestFilter {
 		}
 
 		let str = JSON.stringify(msg);
-		const objRufsGroupOwner = microService.entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroupOwner", obj);
-		const rufsGroup = microService.entityManager.dataStoreManager.getPrimaryKeyForeign(serviceName, "rufsGroup", obj);
+		const objRufsGroupOwner = this.microService.entityManager.dataStoreManager.getPrimaryKeyForeign(this.serviceName, "rufsGroupOwner", obj);
+		const rufsGroup = this.microService.entityManager.dataStoreManager.getPrimaryKeyForeign(this.serviceName, "rufsGroup", obj);
 		console.log("[RequestFilter.notify] broadcasting...", msg);
 
-		for (let [userName, wsServerConnection] of microService.wsServerConnections) {
-			let tokenData = wsServerConnection.token;
-			const userRufsGroupOwner = microService.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenData);
+		for (let [userName, wsServerConnection] of this.microService.wsServerConnections) {
+			let tokenPayload = wsServerConnection.token;
+			const userRufsGroupOwner = this.microService.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", tokenPayload);
 			// enviar somente para os clients de "rufsGroupOwner"
 			let checkRufsGroupOwner = objRufsGroupOwner == undefined || objRufsGroupOwner.primaryKey.id == userRufsGroupOwner.primaryKey.id;
-			let checkRufsGroup = rufsGroup == undefined || tokenData.groups.indexOf(rufsGroup.primaryKey.id) >= 0;
+			let checkRufsGroup = rufsGroup == undefined || tokenPayload.groups.indexOf(rufsGroup.primaryKey.id) >= 0;
 			// restrição de rufsGroup
 			if (userRufsGroupOwner.primaryKey.id == 1 || (checkRufsGroupOwner && checkRufsGroup)) {
-				let role = tokenData.roles[serviceName];
+				const role = tokenPayload.roles.find(item => item.path == this.path)
 
-				if (role != undefined && role.read != false) {
+				if (role != null && (role.mask & 1) != 0) {
 					Promise.resolve().then(() => {
-						console.log("[RequestFilter.notify] send to client", tokenData.name);
+						console.log("[RequestFilter.notify] send to client", tokenPayload.name);
 						wsServerConnection.sendUTF(str)
 					});
 				}
