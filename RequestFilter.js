@@ -29,7 +29,35 @@ class DataStoreManagerDb extends DataStoreManager {
 }
 
 class RequestFilter {
-// private to create,update,delete,read
+	constructor(req, microService) {
+		this.microService = microService
+		this.method = req.method.toLowerCase();
+
+		if (this.method == "post" || this.method == "put" || this.method == "patch") {
+			this.obj = req.body;
+		}
+
+		this.queryParams = req.query
+		this.path = OpenApi.getPathParams(microService.openapi, req.path, this.queryParams)
+
+		if (this.path == null) {
+			return Promise.resolve(Response.badRequest(`[RufsMicroService.onRequest] : missing path for ${req.path}`))
+		}
+
+		this.serviceName = OpenApi.getSchemaName(this.microService.openapi, this.path, this.method, null)
+		this.schemaResponse = OpenApi.getResponseSchema(this.microService.openapi, this.path, this.method)
+
+		if (microService.fileDbAdapter.fileTables.has(this.serviceName) == true) {
+			this.entityManager = microService.fileDbAdapter;
+		} else {
+			this.entityManager = microService.entityManager
+		}
+
+		this.tokenPayload = null
+		this.useDocument = false
+		this.service = this.entityManager.dataStoreManager.getSchema(this.serviceName, null)
+	}
+	// private to create,update,delete,read
 	checkObjectAccess() {
 		let response = null;
 		const userRufsGroupOwner = this.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", this.tokenPayload);
@@ -83,7 +111,14 @@ class RequestFilter {
 	}
 	// public processRead
 	processRead() {
-		return this.getObject().then(obj => Response.ok(obj));
+		return this.getObject().
+		then(obj => {
+			if (obj == null) {
+				return Response.notFound("Don't found data with requested parameters.");
+			}
+
+			return Response.ok(obj);
+		});
 	}
 	// public processUpdate
 	processUpdate() {
@@ -95,7 +130,10 @@ class RequestFilter {
 			return this.entityManager.update(this.serviceName, this.parseQueryParameters(true), this.obj).then(newObj => {
 				const primaryKey = this.notify(newObj, false);
 				// force read, cases of triggers before break result value
-				return this.entityManager.findOne(this.serviceName, primaryKey).then(_obj => Response.ok(_obj));
+				return this.entityManager.findOne(this.serviceName, primaryKey).
+				then(_obj => {
+					return Response.ok(_obj)
+				});
 			});
 		});
 	}
@@ -176,7 +214,7 @@ class RequestFilter {
 		);
 	}
 	// public
-	static checkAuthorization(microService, req) {
+	checkAuthorization(req) {
 		const extractTokenPayload = tokenRaw => {
 			let tokenPayload;
 	
@@ -194,20 +232,20 @@ class RequestFilter {
 			return tokenPayload;
 		}
 
-		for (const securityItem of microService.openapi.security) {
+		for (const securityItem of this.microService.openapi.security) {
 			for (const securityName in securityItem) {
-				const securityScheme = microService.openapi.components.securitySchemes[securityName]
+				const securityScheme = this.microService.openapi.components.securitySchemes[securityName]
 
 				if (securityScheme != null) {
 					if (securityScheme.type == "http" && securityScheme.scheme == "bearer" && securityScheme.bearerFormat == "JWT") {
 						const authorizationHeaderPrefix = "Bearer ";
 						let tokenRaw = req.get("Authorization")
 
-						if (tokenRaw.startsWith(authorizationHeaderPrefix)) {
+						if (tokenRaw != null && tokenRaw.startsWith(authorizationHeaderPrefix)) {
 							tokenRaw = tokenRaw.substring(authorizationHeaderPrefix.length)
 
 							try {
-								req.tokenPayload = extractTokenPayload(tokenRaw);
+								this.tokenPayload = extractTokenPayload(tokenRaw);
 							} catch (err) {
 								return false;
 							}
@@ -215,42 +253,34 @@ class RequestFilter {
 					} else if (securityScheme.type == "apiKey") {
 						if (securityScheme.in == "header") {
 							const tokenRaw = req.get(securityScheme.name)
-							const user = microService.fileDbAdapter.findOneSync("rufsUser", {"password": tokenRaw});
-							if (user == null) return false
-							req.tokenPayload = user
+
+							if (tokenRaw != null && tokenRaw.length >= 0) {
+								const user = this.microService.fileDbAdapter.findOneSync("rufsUser", {"password": tokenRaw});
+								if (user == null) return false
+								this.tokenPayload = user
+							}
 						}
 					}
 				}
 			}
 		}
 
+		if (this.tokenPayload == null) {
+			return false;
+		}
+
 		let access = false;
-		const role = req.tokenPayload.roles.find(role => role.path == req.path)
+		const role = this.tokenPayload.roles.find(role => role.path == this.path)
 		// verfica a permissao de acesso
 		if (role != undefined) {
-			const idx = OpenApi.methods.indexOf(req.method.toLowerCase());
+			const idx = OpenApi.methods.indexOf(this.method);
 
-			if (idx >= 0 && role.mask & (1 << idx) != 0) {
+			if (idx >= 0 && (role.mask & (1 << idx)) != 0) {
 				access = true
 			}
 		}
 
 		return access;
-	}
-
-	constructor(path, method, queryParams, tokenPayload, obj, entityManager, microService, useDocument) {
-		this.path = path
-		this.method = method
-		this.queryParams = queryParams
-		this.tokenPayload = tokenPayload
-		this.obj = obj
-		this.entityManager = entityManager
-		this.microService = microService
-		this.serviceName = CaseConvert.underscoreToCamel(path.substring(1))
-		this.useDocument = useDocument
-		this.service = entityManager.dataStoreManager.getSchema(this.serviceName, tokenPayload)
-		this.schemaResponse = OpenApi.getResponseSchema(entityManager.openapi, path, method)
-
 	}
 	// processRequest
 	processRequest() {
@@ -329,7 +359,6 @@ class RequestFilter {
         	entityManager.dataStoreManager = new DataStoreManagerDb(listDataStore, openapi, entityManager);
         });
 	}
-
 }
 
 export {RequestFilter}

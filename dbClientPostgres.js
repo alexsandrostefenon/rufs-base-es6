@@ -585,7 +585,7 @@ class DbClientPostgres {
 		});
 	}
 
-	getOpenApi(openapi, options) {
+	updateOpenApi(openapi, options) {
 		const getFieldName = (columnName, field) => {
 			let fieldName = CaseConvert.underscoreToCamel(columnName.trim().toLowerCase(), false);
 			const fieldNameLowerCase = fieldName.toLowerCase();
@@ -653,11 +653,11 @@ class DbClientPostgres {
 										if (foreignKey.tableRef == undefined || foreignKey.tableRef == tableRef)
 											foreignKey.tableRef = tableRef;
 										else 
-											console.error(`[${this.constructor.name}.getOpenApi().processConstraints()] : tableRef already defined : new (${tableRef}, old (${foreignKey.tableRef}))`);
+											console.error(`[${this.constructor.name}.updateOpenApi().processConstraints()] : tableRef already defined : new (${tableRef}, old (${foreignKey.tableRef}))`);
 									}
 
 									if (foreignKey.fields.length != foreignKey.fieldsRef.length) {
-										console.error(`[${this.constructor.name}.getOpenApi().processConstraints()] : fields and fieldsRef length don't match : fields (${foreignKey.fields.toString()}, fieldsRef (${foreignKey.fieldsRef.toString()}))`);
+										console.error(`[${this.constructor.name}.updateOpenApi().processConstraints()] : fields and fieldsRef length don't match : fields (${foreignKey.fields.toString()}, fieldsRef (${foreignKey.fieldsRef.toString()}))`);
 										continue;
 									}
 
@@ -717,8 +717,7 @@ class DbClientPostgres {
 							}
 
 							if (schema.required.length == 0) {
-								console.error(`[${this.constructor.name}.getOpenApi().processColumns()] missing required fields of table ${schemaName}`);
-//								delete openapi.components.schemas[schemaName];
+								console.error(`[${this.constructor.name}.updateOpenApi().processColumns()] missing required fields of table ${schemaName}`);
 							}
 						}
 

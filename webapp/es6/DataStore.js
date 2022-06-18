@@ -33,6 +33,13 @@ class RufsSchema {
 		if (this.shortDescriptionList.length == 0) {
 			let shortDescriptionListSize = 0;
 
+			for (let [fieldName, field] of entries) {
+				if (field.hiden == null && field.identityGeneration != null && Object.entries(this.uniqueKeys).length > 0) {
+					field.hiden = true
+					field.tableVisible = false
+				}
+			}
+
 			if (this.primaryKeys.find(fieldName => this.properties[fieldName].tableVisible == false) == undefined) {
 				Array.prototype.push.apply(this.shortDescriptionList, this.primaryKeys);
 				for (let fieldName of this.primaryKeys) shortDescriptionListSize += OpenApi.getMaxFieldSize(schema, fieldName);
@@ -203,7 +210,7 @@ class DataStoreManager {
 		const removeBrokenRefs = (schema, openapi) => {
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
 				if (field.$ref != undefined) {
-					const $ref = OpenApi.getSchemaName(field.$ref);
+					const $ref = OpenApi.getSchemaNameFromRef(field.$ref);
 
 					if (this.services[$ref] == undefined) {
 						console.error(`[${this.constructor.name}.setSchemas] : missing this.services of ${$ref}`);
@@ -252,7 +259,7 @@ class DataStoreManager {
 	}
 
 	getSchema($ref, tokenPayload) {
-		const schemaName = OpenApi.getSchemaName($ref);
+		const schemaName = OpenApi.getSchemaNameFromRef($ref);
 		const serviceName = CaseConvert.underscoreToCamel(schemaName, false);
 		const path = "/" + CaseConvert.camelToUnderscore(schemaName, false);
 
@@ -1023,11 +1030,22 @@ class Filter {
     }
 	// public
 	static checkMatchExact(item, obj) {
-		if (obj == null) return item == null;
+		if (obj == null) {
+			return item == null
+		}
+
+		const itemEntries = Object.entries(item)
+		const objEntries = Object.entries(obj)
+
+		if (itemEntries.length == 0 && objEntries.length == 0) {
+			return true
+		} else if (itemEntries.length == 0 || objEntries.length == 0) {
+			return false
+		}
+
     	let match = true;
 
-    	for (let fieldName in obj) {
-        	let expected = obj[fieldName];
+    	for (let [fieldName, expected] of objEntries) {
         	if (typeof expected == "string") expected = expected.trimEnd();
         	let value = item[fieldName];
         	if (typeof value == "string") value = value.trimEnd();

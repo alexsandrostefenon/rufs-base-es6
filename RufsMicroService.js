@@ -55,10 +55,10 @@ class RufsServiceDbSync {
 		let sqlNotNull = field.nullable != true ? "NOT NULL" : "";
 		return `${CaseConvert.camelToUnderscore(fieldName)} ${sqlType}${sqlLengthScale} ${sqlDefault} ${sqlNotNull}`;
 	}
-	// TODO : refatorar função genSqlForeignKey(fieldName, field, openapi) para genSqlForeignKey(tableName, openapi)
-	genSqlForeignKey(fieldName, field, openapi) {
+	// TODO : refatorar função genSqlForeignKey(fieldName, field) para genSqlForeignKey(tableName)
+	genSqlForeignKey(fieldName, field) {
 		const ret = [];
-		const $ref = OpenApi.getSchemaName(field.$ref);
+		const $ref = OpenApi.getSchemaNameFromRef(field.$ref);
 		const tableOut = CaseConvert.camelToUnderscore($ref);
 		const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
 		ret.push(str);
@@ -71,11 +71,11 @@ class RufsServiceDbSync {
 
 		if (schema.properties == undefined) throw new Error(`DbClientPostgres.createTable(${name}, ${schema.properties}) : schema.properties : Invalid Argument Exception`);
 
-		const genSql = openapi => {
+		const genSql = () => {
 			let tableBody = "";
 			for (let [fieldName, field] of Object.entries(schema.properties)) tableBody = tableBody + this.genSqlColumnDescription(fieldName, field) + ", ";
 			// add foreign keys
-			for (let [fieldName, field] of Object.entries(schema.properties)) if (field.$ref != undefined) tableBody = tableBody + this.genSqlForeignKey(fieldName, field, openapi) + ", ";
+			for (let [fieldName, field] of Object.entries(schema.properties)) if (field.$ref != undefined) tableBody = tableBody + this.genSqlForeignKey(fieldName, field) + ", ";
 			// add unique keys
 			let mapUniqueKey = new Map();
 
@@ -101,15 +101,15 @@ class RufsServiceDbSync {
 			return sql;
 		};
 		
-		return this.entityManager.getOpenApi().then(openapi => genSql(openapi)).then(sql => this.entityManager.client.query(sql));
+		return this.entityManager.updateOpenApi(this.entityManager.openapi).then(() => genSql()).then(sql => this.entityManager.client.query(sql));
 	}
 
 	alterTable(name, newFields, oldFields) {
-		if (newFields == undefined) throw new Error(`RequestFilter.alterTable(${name}, ${newFields}) : newFields : Invalid Argument Exception`);
+		if (newFields == undefined) throw new Error(`RufsServiceDbSync.alterTable(${name}, ${newFields}) : newFields : Invalid Argument Exception`);
 		if (typeof(newFields) == "string") newFields = JSON.parse(newFields);
 		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
 		
-		const genSql = openapi => {
+		const genSql = () => {
 			let sql = null;
 			let tableBody = "";
 			// fields to remove
@@ -117,7 +117,7 @@ class RufsServiceDbSync {
 			// fields to add
 			for (let [fieldName, field] of Object.entries(newFields)) if (oldFields[fieldName] ==  undefined) tableBody = tableBody + "ADD COLUMN " + this.genSqlColumnDescription(fieldName, field) + ", ";
 			// add foreign keys for new fields or existent fields without foreign keys 
-			for (let [fieldName, field] of Object.entries(newFields)) if ((field.$ref != undefined) && (oldFields[fieldName] ==  undefined || oldFields[fieldName].$ref ==  undefined)) tableBody = tableBody + "ADD " + this.genSqlForeignKey(fieldName, field, openapi) + ", ";
+			for (let [fieldName, field] of Object.entries(newFields)) if ((field.$ref != undefined) && (oldFields[fieldName] ==  undefined || oldFields[fieldName].$ref ==  undefined)) tableBody = tableBody + "ADD " + this.genSqlForeignKey(fieldName, field) + ", ";
 			//
 			if (tableBody.length > 0) {
 				tableBody = tableBody.substring(0, tableBody.length-2);
@@ -125,12 +125,12 @@ class RufsServiceDbSync {
 				sql = `ALTER TABLE ${tableName} ${tableBody}`;
 			}
 
-			console.log(`.alterTable() : table ${name}, sql : \n${sql}\n`, openapi);
+			console.log(`.alterTable() : table ${name}, sql : \n${sql}\n`);
 			return sql;
 		};
 		
-		return this.entityManager.getOpenApi().
-		then(openApi => genSql(openApi)).
+		return this.entityManager.updateOpenApi(this.entityManager.openapi).
+		then(() => genSql()).
 		then(sql => {
 			if (sql != null) {
 				return this.entityManager.client.query(sql).catch(err => {
@@ -165,14 +165,21 @@ class RufsMicroService extends MicroServiceServer {
 		// sleep one secound to prevent db/disk over access in network atack
 		return new Promise(r => setTimeout(r, 1000)).
 		then(() => {
-			const user = Filter.findOne(this.listUser, {"name": userName})
-
+			if (this.fileDbAdapter.fileTables.has("rufsUser")) {
+				return this.fileDbAdapter.findOne("rufsUser", {"name": userName})
+			} else {
+				return this.entityManager.findOne("rufsUser", {"name": userName})
+			}
+		}).
+		then(user => {
 			if (!user || user.password != userPassword) {
 				throw "Don't match user and password."
 			}
 
 			const loginResponse = {};
 			loginResponse.title = "";
+			loginResponse.id = user.id
+			loginResponse.name = user.name
 			loginResponse.rufsGroupOwner = user.rufsGroupOwner;
 			loginResponse.roles = user.roles;
 			loginResponse.routes = user.routes;
@@ -182,13 +189,39 @@ class RufsMicroService extends MicroServiceServer {
 
 			if (loginResponse.rufsGroupOwner) {
 				const item = this.entityManager.dataStoreManager.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", user);
-				const rufsGroupOwner = Filter.findOne(this.listGroupOwner, item.primaryKey);
-				if (rufsGroupOwner != null) loginResponse.title = rufsGroupOwner.name + " - " + userName;
+				let promise;
+
+				if (this.fileDbAdapter.fileTables.has("rufsGroupOwner")) {
+					promise = this.fileDbAdapter.findOne("rufsGroupOwner", item.primaryKey)
+				} else {
+					promise = this.entityManager.findOne("rufsGroupOwner", item.primaryKey)
+				}
+
+				return promise.then(rufsGroupOwner => {
+					if (rufsGroupOwner != null) loginResponse.title = rufsGroupOwner.name + " - " + userName;
+					return loginResponse
+				})
+			} else {
+				return Promise.resolve(loginResponse)
+			}
+		}).
+		then(loginResponse => {
+			let promise;
+
+			if (this.fileDbAdapter.fileTables.has("rufsGroupUser")) {
+				promise = this.fileDbAdapter.find("rufsGroupUser", {"rufsUser": loginResponse.id})
+			} else {
+				promise = this.entityManager.find("rufsGroupUser", {"rufsUser": loginResponse.id})
 			}
 
-			Filter.find(this.listGroupUser, {"rufsUser": user.id}).forEach(item => loginResponse.groups.push(item.rufsGroup));
+			return promise.then(list => {
+				list.forEach(item => loginResponse.groups.push(item.rufsGroup));
+				return loginResponse
+			})
+		}).
+		then(loginResponse => {
 			// TODO : fazer expirar no final do expediente diário
-			loginResponse.tokenPayload = {id: user.id, name: user.name, rufsGroupOwner: user.rufsGroupOwner, groups: loginResponse.groups, roles: loginResponse.roles, ip: remoteAddr}
+			loginResponse.tokenPayload = {id: loginResponse.id, name: loginResponse.name, rufsGroupOwner: loginResponse.rufsGroupOwner, groups: loginResponse.groups, roles: loginResponse.roles, ip: remoteAddr}
 			return loginResponse
 		});
     }
@@ -202,7 +235,7 @@ class RufsMicroService extends MicroServiceServer {
 				} else {
 					//loginResponse.openapi = OpenApi.create({});
 					//OpenApi.copy(loginResponse.openapi, this.entityManager.dataStoreManager.openapi, loginResponse.roles);
-					loginResponse.openapi = this.entityManager.dataStoreManager.openapi;
+					loginResponse.openapi = OpenApi.convertRufsToStandart(this.entityManager.dataStoreManager.openapi)
 				}
 				// warning tokenPayload is http.header size limited to 8k
 				loginResponse.JwtHeader = jwt.sign(loginResponse.tokenPayload, process.env.JWT_SECRET || "123456", {expiresIn: 24 * 60 * 60 /*secounds*/});
@@ -210,204 +243,141 @@ class RufsMicroService extends MicroServiceServer {
 			}).
 			catch(msg => Response.unauthorized(msg));
 		} else {
-			let access = RequestFilter.checkAuthorization(this, req);
-			if (access != true) return Promise.resolve(Response.unauthorized("Explicit Unauthorized"));
+			try {
+				const rf = new RequestFilter(req, this)
+				const isAuthorized = rf.checkAuthorization(req)
 
-			if (req.path == "/rufs_service" && req.method == "GET") {
-				const list = OpenApi.getList(Qs, OpenApi.convertRufsToStandart(this.openapi, true), true, req.tokenPayload.roles);
-				return Promise.resolve(Response.ok(list));
-			}
+				if (isAuthorized != true) {
+					return Promise.resolve(Response.unauthorized("Explicit Unauthorized"))
+				}
 
-			const serviceName = CaseConvert.underscoreToCamel(req.path.substring(1))
-			let entityManager = this.entityManager
-
-			if (this.fileDbAdapter.fileTables.has(serviceName) == true) {
-				entityManager = this.fileDbAdapter;
+				return rf.processRequest();
+			} catch (error) {
+				return Promise.resolve(Response.badRequest(error))
 			}
-	
-			let obj = null;
-	
-			if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
-				obj = req.body;
-			}
-	
-			const rf = new RequestFilter(req.path, req.method.toLowerCase(), req.query, req.tokenPayload, obj, entityManager, this, false)
-			return rf.processRequest();
 		}
 	}
 
-	loadRufsTables() {
+	loadFileTables() {
 		const loadTable = (name, defaultRows) => this.entityManager.find(name).catch(() => this.fileDbAdapter.load(name, defaultRows))
-		return this.loadOpenApi().
-		then(openapi => {
-			this.fileDbAdapter = new FileDbAdapter(openapi);
-			return RequestFilter.updateRufsServices(this.fileDbAdapter, openapi);
+		const promise = this.openapi == null ? this.loadOpenApi() : Promise.resolve()
+		return promise.
+		then(() => {
+			this.fileDbAdapter = new FileDbAdapter(this.openapi);
+			return RequestFilter.updateRufsServices(this.fileDbAdapter, this.openapi);
 		}).
-		then(() => loadTable("rufsService", [])).
-//		then(rows => this.listRufsService= rows).
 		then(() => loadTable("rufsGroup", [])).
-		then(rows => this.listGroup = rows).
 		then(() => loadTable("rufsGroupUser", [])).
-		then(rows => this.listGroupUser = rows).
 		then(() => loadTable("rufsGroupOwner", [RufsMicroService.defaultGroupOwnerAdmin])).
-		then(rows => this.listGroupOwner = rows).
-		then(() => loadTable("rufsUser", [RufsMicroService.defaultUserAdmin])).
-		then(rows => this.listUser = rows);
+		then(() => loadTable("rufsUser", [RufsMicroService.defaultUserAdmin]))
 	}
 
 	listen() {
 		const openApiRufs = OpenApi.convertStandartToRufs(JSON.parse(RufsMicroService.openApiRufs));
 
 		const createRufsTables = () => {
-			if (this.config.checkRufsTables != true)
-				return Promise.resolve();
+			if (this.config.checkRufsTables != true) {
+				return Promise.resolve()
+			}
 
-			return this.entityManager.getOpenApi().
-			then(openapi => {
-				let tablesMissing = new Map();
+			let tablesMissing = new Map();
 
-				for (let [name, schema] of Object.entries(openApiRufs.components.schemas)) {
-					if (openapi.components.schemas[name] == undefined) {
-						tablesMissing.set(name, schema)
-					}
+			for (let [name, schema] of Object.entries(openApiRufs.components.schemas)) {
+				if (this.openapi.components.schemas[name] == undefined) {
+					tablesMissing.set(name, schema)
 				}
+			}
 
-				const rufsServiceDbSync = new RufsServiceDbSync(this.entityManager);
+			const rufsServiceDbSync = new RufsServiceDbSync(this.entityManager);
 
-				const createTable = iterator => {
-					let it = iterator.next();
-					if (it.done == true) return Promise.resolve();
-					let [name, schema] = it.value;
-					console.log(`${this.constructor.name}.listen().createRufsTables().createTable(${name})`);
-					return rufsServiceDbSync.createTable(name, schema).then(() => createTable(iterator));
-				};
-
-				return createTable(tablesMissing.entries());
-			}).
-			then(() => {
-				return Promise.resolve().
-				then(() => this.entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => this.entityManager.insert("rufsGroupOwner", RufsMicroService.defaultGroupOwnerAdmin))).
-				then(() => this.entityManager.findOne("rufsUser", {name: "admin"}).catch(() => this.entityManager.insert("rufsUser", RufsMicroService.defaultUserAdmin))).
-				then(() => Promise.resolve());
-			});
-		}
-
-		const syncDb2OpenApi = () => {
-			const execMigrations = () => {
-				if (fs.existsSync(this.config.migrationPath) == false)
-					return Promise.resolve();
-
-				const regExp1 = /^(?<v1>\d{1,3})\.(?<v2>\d{1,3})\.(?<v3>\d{1,3})/;
-				const regExp2 = /^(?<v1>\d{3})(?<v2>\d{3})(?<v3>\d{3})/;
-
-				const getVersion = name => {
-					const regExpResult = regExp1.exec(name);
-					if (regExpResult == null) return 0;
-					return Number.parseInt(regExpResult.groups.v1.padStart(3, "0") + regExpResult.groups.v2.padStart(3, "0") + regExpResult.groups.v3.padStart(3, "0"));
-				};
-
-				const migrate = (openapi, list) => {
-					if (list.length == 0)
-						return Promise.resolve(openapi);
-
-					const fileName = list.shift();
-					return fsPromises.readFile(`${this.config.migrationPath}/${fileName}`, "utf8").
-					then(text => {
-						const execSql = list => {
-							if (list.length == 0) return Promise.resolve();
-							const sql = list.shift();
-							return this.entityManager.client.query(sql).
-							catch(err => {
-								console.error(`[${this.constructor.name}.listen.syncDb2OpenApi.execMigrations.migrate(${fileName}).execSql] :\n${sql}\n${err.message}`);
-								throw err;
-							}).
-							then(() => execSql(list));
-						};
-
-						const list = text.split("--split");
-						return execSql(list);
-					}).
-					then(() => {
-						let newVersion = getVersion(fileName);
-						const regExpResult = regExp2.exec(newVersion.toString().padStart(9, "0"));
-						openapi.info.version = `${Number.parseInt(regExpResult.groups.v1)}.${Number.parseInt(regExpResult.groups.v2)}.${Number.parseInt(regExpResult.groups.v3)}`;
-						return this.storeOpenApi(openapi);
-					}).
-					then(() => migrate(openapi, list));
-				};
-
-				return this.loadOpenApi().
-				then(openapi => {
-					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi in execMigrations`);
-					const oldVersion = getVersion(openapi.info.version);
-					return fsPromises.readdir(`${this.config.migrationPath}`).
-					then(list => list.filter(fileName => getVersion(fileName) > oldVersion)).
-					then(list => list.sort((a, b) => getVersion(a) - getVersion(b))).
-					then(list => migrate(openapi, list));
-				});
+			const createTable = iterator => {
+				let it = iterator.next();
+				if (it.done == true) return Promise.resolve();
+				let [name, schema] = it.value;
+				console.log(`${this.constructor.name}.listen().createRufsTables().createTable(${name})`);
+				return rufsServiceDbSync.createTable(name, schema).then(() => createTable(iterator));
 			};
 
-			return execMigrations().
-			then(() => this.entityManager.getOpenApi({}, {requestBodyContentType: this.config.requestBodyContentType})).
-			then(openApiDb => {
-				return this.loadOpenApi().
-				then(openapi => {
-					console.log(`[${this.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
-					OpenApi.fillOpenApi(openApiDb, {schemas: openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType});
-/*
-					for (let name in openApiRufs.components.schemas) {
-						if (openApiDb.components.schemas[name] == undefined) {
-							openApiDb.components.schemas[name] = openApiRufs.components.schemas[name];
-						}
-					}
-*/
-					for (let [name, schemaDb] of Object.entries(openApiDb.components.schemas)) {
-						openApiDb.components.schemas[name] = OpenApi.mergeSchemas(openapi.components.schemas[name], schemaDb, false, name);
-					}
+			return createTable(tablesMissing.entries()).
+			then(() => this.entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => this.entityManager.insert("rufsGroupOwner", RufsMicroService.defaultGroupOwnerAdmin))).
+			then(() => this.entityManager.findOne("rufsUser", {name: "admin"}).catch(() => this.entityManager.insert("rufsUser", RufsMicroService.defaultUserAdmin)))
+		}
 
-//					OpenApi.fillOpenApi(openApiDb, {requestBodyContentType: this.config.requestBodyContentType});
-//					OpenApi.merge(openapi, openApiDb);
+		const execMigrations = () => {
+			if (fs.existsSync(this.config.migrationPath) == false) {
+				return Promise.resolve();
+			}
 
-					for (let name in openApiDb.components.schemas) {
-						if (openapi.components.schemas[name] == undefined) {
-							if (openApiDb.components.schemas[name] != null) openapi.components.schemas[name] = openApiDb.components.schemas[name];
-							if (openApiDb.paths["/" + name] != null) openapi.paths["/" + name] = openApiDb.paths["/" + name];
-							if (openapi.components.parameters == null) openapi.components.parameters = {}
-							if (openApiDb.components.parameters[name] != null) openapi.components.parameters[name] = openApiDb.components.parameters[name];
-							if (openApiDb.components.requestBodies[name] != null) openapi.components.requestBodies[name] = openApiDb.components.requestBodies[name];
-							if (openapi.components.responses == null) openapi.components.responses = {}
-							if (openApiDb.components.responses[name] != null) openapi.components.responses[name] = openApiDb.components.responses[name];
-						}
-					}
+			const regExp1 = /^(?<v1>\d{1,3})\.(?<v2>\d{1,3})\.(?<v3>\d{1,3})/;
+			const regExp2 = /^(?<v1>\d{3})(?<v2>\d{3})(?<v3>\d{3})/;
 
-					return this.storeOpenApi(openapi);
+			const getVersion = name => {
+				const regExpResult = regExp1.exec(name);
+				if (regExpResult == null) return 0;
+				return Number.parseInt(regExpResult.groups.v1.padStart(3, "0") + regExpResult.groups.v2.padStart(3, "0") + regExpResult.groups.v3.padStart(3, "0"));
+			};
+
+			const migrate = (list) => {
+				if (list.length == 0) {
+					return Promise.resolve()
+				}
+
+				const fileName = list.shift();
+				return fsPromises.readFile(`${this.config.migrationPath}/${fileName}`, "utf8").
+				then(text => {
+					const execSql = list => {
+						if (list.length == 0) return Promise.resolve();
+						const sql = list.shift();
+						return this.entityManager.client.query(sql).
+						catch(err => {
+							console.error(`[${this.constructor.name}.listen.execMigrations.migrate(${fileName}).execSql] :\n${sql}\n${err.message}`);
+							throw err;
+						}).
+						then(() => execSql(list));
+					};
+
+					const list = text.split("--split");
+					return execSql(list);
 				}).
-				then(openapi => this.openapi = openapi);
-			});
+				then(() => {
+					let newVersion = getVersion(fileName);
+					const regExpResult = regExp2.exec(newVersion.toString().padStart(9, "0"));
+					this.openapi.info.version = `${Number.parseInt(regExpResult.groups.v1)}.${Number.parseInt(regExpResult.groups.v2)}.${Number.parseInt(regExpResult.groups.v3)}`;
+				}).
+				then(() => migrate(list));
+			};
+
+			const oldVersion = getVersion(this.openapi.info.version);
+			return fsPromises.readdir(`${this.config.migrationPath}`).
+			then(list => list.filter(fileName => getVersion(fileName) > oldVersion)).
+			then(list => list.sort((a, b) => getVersion(a) - getVersion(b))).
+			then(list => {
+				if (list.length > 0) {
+					return migrate(list).
+					then(() => {
+						return this.entityManager.updateOpenApi(this.openapi, {requestBodyContentType: this.config.requestBodyContentType})
+					}).
+					then(() => {
+						return this.storeOpenApi()
+					})
+				}
+			})
 		}
 
 		console.log(`[${this.constructor.name}] starting ${this.config.appName}...`);
-		return this.entityManager.connect().
+		const promise = this.openapi == null ? this.loadOpenApi() : Promise.resolve()
+		return promise.
+		then(() => this.entityManager.connect()).
+		then(() => this.entityManager.updateOpenApi(this.openapi, {requestBodyContentType: this.config.requestBodyContentType})).
 		then(() => createRufsTables()).
-		then(() => syncDb2OpenApi()).
-		then(openapi => {
-			console.log(`[${this.constructor.name}.listen()] openapi after syncDb2OpenApi`);
-			return Promise.resolve().
-			then(() => this.loadRufsTables()).
-			then(() => {
-				return RequestFilter.updateRufsServices(this.entityManager, openapi);
-			}).
-			then(() => super.listen()).
-			then(() => console.log(`[${this.constructor.name}] ... ${this.config.appName} started.`));
-		});
-	}
-
-	loadOpenApi(fileName) {
-		return super.loadOpenApi(fileName).then(openapi => {
-			const openApiRufs = OpenApi.convertStandartToRufs(JSON.parse(RufsMicroService.openApiRufs))
-			OpenApi.fillOpenApi(openapi, {schemas: openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType});
-			return openapi
-		});
+		then(() => OpenApi.fillOpenApi(this.openapi, {schemas: openApiRufs.components.schemas, requestBodyContentType: this.config.requestBodyContentType, security: [{"jwt": []}]})).
+		then(() => execMigrations()).
+		then(() => this.loadFileTables()).
+		then(() => {
+			return RequestFilter.updateRufsServices(this.entityManager, this.openapi)
+		}).
+		then(() => super.listen()).
+		then(() => console.log(`[${this.constructor.name}] ... ${this.config.appName} started.`));
 	}
 }
 

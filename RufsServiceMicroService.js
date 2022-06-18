@@ -8,12 +8,12 @@ class RufsServiceMicroService extends RufsMicroService {
 	constructor(config) {
 		super(config, "rufs_service");
 	}
-
+/*
 	update(req, res, next, resource, action) {
 		const name = req.query.name;
 		return this.loadOpenApi().
-		then(openapi => {
-			const schemaOld = openapi.components.schemas[name];
+		then(() => {
+			const schemaOld = this.openapi.components.schemas[name];
 			const schema = req.body;
 			console.log(`.update : [${name}] :\nold properties :\n`, schemaOld.properties, "\nnew properties :\n", schema.properties);
 			let promise;
@@ -29,17 +29,16 @@ class RufsServiceMicroService extends RufsMicroService {
 			}
 			
 			promise.then(schemaChanged => {
-				openapi.components.schemas[name] = OpenApi.mergeSchemas(schemaOld, schemaChanged, false, schemaChanged.name);
-				return this.storeOpenApi(openapi);
+				this.openapi.components.schemas[name] = OpenApi.mergeSchemas(schemaOld, schemaChanged, false, schemaChanged.name);
+				return this.storeOpenApi();
 			});
 		}).
-		then(openapi => this.openapi = openapi).
 		catch(err => {
 			console.log("ProcessRequest error : ", err);
 			return Response.internalServerError(err.message);
 		});
 	}
-
+*/
 	remove(req, res, next, resource, action) {
 		return this.entityManager.findOne("rufsService", {name: req.query.name}).
 		then(schemaOld => {
@@ -56,10 +55,11 @@ class RufsServiceMicroService extends RufsMicroService {
 	}
 
 	processLogin(req) {
-		let access = RequestFilter.checkAuthorization(this, req);
+		const rf = new RequestFilter(req, this)
+		const isAuthorized = rf.checkAuthorization(req)
 		let promise;
 
-		if (access == true) {
+		if (isAuthorized == true) {
 			if (req.method == "PUT") {
 				promise = this.update(req, res, next);
 			} else if (req.method == "DELETE") {

@@ -95,6 +95,7 @@ class MicroServiceServer {
 		const defaultStaticPaths = path.join(path.dirname(url.fileURLToPath(import.meta.url)), "webapp");
 		config.defaultStaticPaths = config.defaultStaticPaths != undefined ? config.defaultStaticPaths + "," + defaultStaticPaths : defaultStaticPaths;
 		this.config = MicroServiceServer.getArgs(config);
+		this.openapi = null;
 		this.restServer = express();
 		this.restServer.use(express.urlencoded({extended:true}));
 		this.restServer.use(express.json({limit: "1mb"}));
@@ -227,34 +228,43 @@ class MicroServiceServer {
 
 	listen() {
 		console.log(`starting listen in ${this.config.appName}...`);
-		return new Promise((resolve, reject) => {
-			this.server.on("listening", msg => {
-				console.log(`...listening at http://${this.server.address().address}:${this.server.address().port}`);
-				resolve(this.expressServer);
+		const promise = this.openapi == null ? this.loadOpenApi() : Promise.resolve()
+		return promise.
+		then(() => {
+			return new Promise((resolve, reject) => {
+				this.server.on("listening", msg => {
+					console.log(`...listening at http://${this.server.address().address}:${this.server.address().port}`);
+					resolve(this.expressServer);
+				});
+	
+				this.server.on("error", err => {
+					console.log("Error in server", err);
+					reject(err);
+				});
+	
+				this.server.listen(this.config.port);
 			});
-
-			this.server.on("error", err => {
-				console.log("Error in server", err);
-				reject(err);
-			});
-
-			this.server.listen(this.config.port);
-		});
+		})
 	}
 
 	loadOpenApi(fileName) {
 		if (fileName == null) fileName = this.constructor.getArg("openapi-file", null);
 		if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
 		console.log(`[${this.constructor.name}.loadOpenApi()] loading ${fileName}`);
-		return fsPromises.readFile(fileName).
-		then(text => {
-			return JSON.parse(text);
-		}).
-		catch(err => {
-			console.log(`[${this.constructor.name}.loadOpenApi()] : fail to parse file ${fileName}:`, err);
-			return OpenApi.create({}, this.config.security);
+		return Promise.resolve().
+		then(() => {
+			if (fs.existsSync(fileName) == false) {
+				return {}
+			}
+
+			return fsPromises.readFile(fileName).
+			then(text => {
+				return JSON.parse(text);
+			})
 		}).
 		then(openapi => {
+			OpenApi.create(openapi, this.config.security)
+
 			if (openapi.servers.length == 0) {
 				openapi.servers.push({"url": `${this.config.protocol}://localhost:${this.config.port}/${this.config.apiPath}`});
 				openapi.servers.push({"url": `${this.config.protocol}://localhost:${Number.parseInt((this.config.port)/10)*10}/${this.config.appName}/${this.config.apiPath}`});
@@ -262,18 +272,17 @@ class MicroServiceServer {
 
 			return openapi;
 		}).
-		then(openapi => OpenApi.convertStandartToRufs(openapi)).
-		then(openapi => this.openapi = openapi);
+		then(openapi => this.openapi = OpenApi.convertStandartToRufs(openapi))
 	}
 
-	storeOpenApi(openapi, fileName) {
+	storeOpenApi(fileName) {
 		if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
-		return fsPromises.writeFile("rufs-" + fileName, JSON.stringify(openapi, null, "\t")).
-		then(() => OpenApi.convertRufsToStandart(openapi)).
-		then(standartOpenApi => fsPromises.writeFile(fileName, JSON.stringify(standartOpenApi, null, "\t"))).
-		then(() => OpenApi.convertRufsToStandart(openapi, true)).
-		then(standartOpenApi => fsPromises.writeFile("client-" + fileName, JSON.stringify(standartOpenApi, null, "\t"))).
-		then(() => openapi);
+		return Promise.resolve().
+		then(() => fsPromises.writeFile("rufs-" + this.openapi.info.version + "-" + fileName, JSON.stringify(this.openapi, null, "\t"))).
+		then(() => OpenApi.convertRufsToStandart(this.openapi)).
+		then(standartOpenApi => fsPromises.writeFile(fileName, JSON.stringify(standartOpenApi, null, "\t")))
+//		then(() => OpenApi.convertRufsToStandart(this.openapi, true)).
+//		then(standartOpenApi => fsPromises.writeFile("client-" + fileName, JSON.stringify(standartOpenApi, null, "\t")))
 	}
 
 	static checkStandalone() {

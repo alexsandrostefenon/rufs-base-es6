@@ -17,12 +17,16 @@ export class Response {
         return Response.create(obj, 200);
     }
 
+    static badRequest(msg) {
+        return Response.create (msg, 400);
+    }
+
     static unauthorized(msg) {
         return Response.create (msg, 401);
     }
 
-    static badRequest (msg) {
-        return Response.create (msg, 400);
+    static notFound(msg) {
+        return Response.create (msg, 404);
     }
 
     static internalServerError (msg) {
