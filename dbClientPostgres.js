@@ -275,18 +275,6 @@ class SqlAdapterPostgres {
 		console.log(`[${this.constructor.name}.constructor(${JSON.stringify(config)})]`);
 		this.client = new pg.Client(config);
 		this.enableParams = true;
-		this.sqlInfoTables = 
-			"select c.*,left(pgd.description,100) as description " +
-			"from pg_catalog.pg_statio_all_tables as st " +
-			"inner join pg_catalog.pg_description pgd on (pgd.objoid=st.relid) " +
-			"right outer join information_schema.columns c on (pgd.objsubid=c.ordinal_position and  c.table_schema=st.schemaname and c.table_name=st.relname) " +
-			"where table_schema = 'public' order by c.table_name,c.ordinal_position";
-		this.sqlInfoConstraints =
-			"SELECT table_name,constraint_name,constraint_type FROM information_schema.table_constraints ORDER BY table_name,constraint_name";
-		this.sqlInfoConstraintsFields =
-			"SELECT constraint_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position";
-		this.sqlInfoConstraintsFieldsRef =
-			"SELECT constraint_name,table_name,column_name FROM information_schema.constraint_column_usage";
 	}
 
 	connect() {
@@ -341,9 +329,6 @@ class DbClientPostgres {
 		} else {
 			this.client = new SqlAdapterPostgres(this.dbConfig);
 		}
-
-		this.sqlTypes  = ["boolean","character varying","character","integer","jsonb" , "jsonb", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date"          , "double precision", "bytea"];
-		this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","object", "array", "number" , "date-time"                  , "date-time"               , "date-time"             , "integer", "integer" , "string", "date-time"     , "number"          , "string"];
 	}
 
 	connect() {
@@ -416,51 +401,56 @@ class DbClientPostgres {
 		return str;
 	}
 
-	buildInsertSql(tableName, obj, params) {
-		const sqlStringify = value => {
-			if (typeof value == "string") value = "'" + value + "'";
-			if (value instanceof Date) value = "'" + value.toISOString() + "'";
-			return value;
-		}
-
-		tableName = CaseConvert.camelToUnderscore(tableName, false);
-		var i = 1;
-		const strFields = [];
-		const strValues = [];
-
-		for (let [fieldName, value] of Object.entries(obj)) {
-			if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
-			strFields.push(CaseConvert.camelToUnderscore(fieldName, false));
-			const paramId = this.client instanceof SqlAdapterNodeFirebird ? `?` : `$${i}`;
-			strValues.push(params != undefined ? paramId : sqlStringify(value));
-
-			if (params != undefined) {
-				if (Array.isArray(value) == true) {
-					var strArray = JSON.stringify(value);
-					params.push(strArray);
-				} else {
-					if (typeof(value) === "string" && value.length > 30000) console.error(`dbClientPostgres.insert: too large value of field ${fieldName}:\n${value}`);
-					params.push(value);
+	insert(schemaName, obj) {
+		const buildInsertSql = (schemaName, schema, obj, params) => {
+			const sqlStringify = value => {
+				if (typeof value == "string") value = "'" + value + "'";
+				if (value instanceof Date) value = "'" + value.toISOString() + "'";
+				return value;
+			}
+	
+			const tableName = CaseConvert.camelToUnderscore(schemaName, false);
+			const strFields = [];
+			const strValues = [];
+			let i = 1;
+	
+			for (let [fieldName, value] of Object.entries(obj)) {
+				if (schema.properties[fieldName] != null && schema.properties[fieldName].identityGeneration != null && value == null) {
+					continue
 				}
 
-				i++;
+				if (this.options.aliasMapExternalToInternal[fieldName] != null) fieldName = this.options.aliasMapExternalToInternal[fieldName];
+				strFields.push(CaseConvert.camelToUnderscore(fieldName, false));
+				const paramId = this.client instanceof SqlAdapterNodeFirebird ? `?` : `$${i}`;
+				strValues.push(params != null ? paramId : sqlStringify(value));
+	
+				if (params != null) {
+					if (Array.isArray(value) == true) {
+						var strArray = value;//JSON.stringify(value);
+						params.push(strArray);
+					} else {
+						if (typeof(value) === "string" && value.length > 30000) console.error(`dbClientPostgres.insert: too large value of field ${fieldName}:\n${value}`);
+						params.push(value);
+					}
+	
+					i++;
+				}
 			}
+	
+			return `INSERT INTO ${tableName} (${strFields.join(",")}) VALUES (${strValues.join(",")}) RETURNING *;`;
 		}
-
-		return `INSERT INTO ${tableName} (${strFields.join(",")}) VALUES (${strValues.join(",")}) RETURNING *;`;
-	}
-
-	insert(tableName, createObj) {
+	
 		const params = this.client.enableParams ? [] : undefined;
-		const sql = this.buildInsertSql(tableName, createObj, params);
+		const schema = OpenApi.getSchemaFromSchemas(this.openapi, schemaName);
+		const sql = buildInsertSql(schemaName, schema, obj, params);
 		return this.client.query(sql, params).
 		then(result => {
-			console.log(`[${this.constructor.name}.insert(${tableName})]\n${sql}\n`, createObj, "\n", result.rows[0]);
+			console.log(`[${this.constructor.name}.insert(${schemaName})]\n${sql}\n`, obj, "\n", result.rows[0]);
 			return result.rows[0];
 		}).
 		catch(err => {
 			err.message = err.message + `\nsql : ${sql}\nparams : ${JSON.stringify(params)}`;
-			console.error(`[${this.constructor.name}.insert(${tableName}, ${JSON.stringify(createObj)})] :`, err.message);
+			console.error(`[${this.constructor.name}.insert(${schemaName}, ${JSON.stringify(obj)})] :`, err.message);
 			throw err;
 		});
 	}
@@ -587,7 +577,7 @@ class DbClientPostgres {
 
 	updateOpenApi(openapi, options) {
 		const getFieldName = (columnName, field) => {
-			let fieldName = CaseConvert.underscoreToCamel(columnName.trim().toLowerCase(), false);
+			let fieldName = CaseConvert.underscoreToCamel(columnName.toLowerCase(), false);
 			const fieldNameLowerCase = fieldName.toLowerCase();
 
 			for (let [aliasMapName, value] of Object.entries(this.options.aliasMap)) {
@@ -611,7 +601,7 @@ class DbClientPostgres {
 		const setRef = (schema, fieldName, tableRef) => {
 			const field = schema.properties[fieldName];
 
-			if (field != undefined) {
+			if (field != null) {
 				field.$ref = "#/components/schemas/" + tableRef;
 			} else {
 				console.error(`${this.constructor.name}.getTablesInfo.processConstraints.setRef : field ${fieldName} not exists in schema ${schema.name}`);
@@ -619,27 +609,38 @@ class DbClientPostgres {
 		}
 
 		const processConstraints = schemas => {
-			return this.client.query(this.client.sqlInfoConstraints).
+			const sqlInfoConstraints =
+				"SELECT table_name,constraint_name,constraint_type FROM information_schema.table_constraints ORDER BY table_name,constraint_name";
+			const sqlInfoConstraintsFields =
+				"SELECT constraint_name,column_name,ordinal_position FROM information_schema.key_column_usage ORDER BY constraint_name,ordinal_position";
+			const sqlInfoConstraintsFieldsRef =
+				"SELECT constraint_name,table_name,column_name FROM information_schema.constraint_column_usage";
+
+			return this.client.query(sqlInfoConstraints).
 			then(result => {
-				return this.client.query(this.client.sqlInfoConstraintsFields).
+				return this.client.query(sqlInfoConstraintsFields).
 				then(resultFields => {
-					return this.client.query(this.client.sqlInfoConstraintsFieldsRef).
+					return this.client.query(sqlInfoConstraintsFieldsRef).
 					then(resultFieldsRef => {
 						for (let [schemaName, schema] of Object.entries(schemas)) {
 							schema.primaryKeys = [];
 							schema.foreignKeys = {};
 							schema.uniqueKeys = {};
 							const tableName = CaseConvert.camelToUnderscore(schemaName, false);
-							const constraints = result.rows.filter(item => item.tableName.trim().toLowerCase() == tableName);
 
-							for (let constraint of constraints) {
+							for (let constraint of result.rows) {
+								if (constraint.tableName.trim().toLowerCase() != tableName) {
+									continue
+								}
+
 								if (constraint.constraintName == null) continue;
 								const constraintName = constraint.constraintName.trim();
-								const name = CaseConvert.underscoreToCamel(constraintName.trim().toLowerCase(), false);
+								const name = CaseConvert.underscoreToCamel(constraintName.toLowerCase(), false);
 								const list = resultFields.rows.filter(item => item.constraintName.trim() == constraintName);
 								const listRef = resultFieldsRef.rows.filter(item => item.constraintName.trim() == constraintName);
+								const constraintType = constraint.constraintType.toString().trim()
 
-								if (constraint.constraintType.toString().trim() == "FOREIGN KEY") {
+								if (constraintType == "FOREIGN KEY") {
 									const foreignKey = {fields: [], fieldsRef: []};
 
 									for (let item of list) {
@@ -648,9 +649,9 @@ class DbClientPostgres {
 
 									for (let itemRef of listRef) {
 										foreignKey.fieldsRef.push(getFieldName(itemRef.columnName));
-										const tableRef = CaseConvert.underscoreToCamel(itemRef.tableName.trim().toLowerCase(), false);
+										const tableRef = CaseConvert.underscoreToCamel(itemRef.tableName.toLowerCase(), false);
 
-										if (foreignKey.tableRef == undefined || foreignKey.tableRef == tableRef)
+										if (foreignKey.tableRef == null || foreignKey.tableRef == tableRef)
 											foreignKey.tableRef = tableRef;
 										else 
 											console.error(`[${this.constructor.name}.updateOpenApi().processConstraints()] : tableRef already defined : new (${tableRef}, old (${foreignKey.tableRef}))`);
@@ -671,13 +672,13 @@ class DbClientPostgres {
 									}
 
 									schema.foreignKeys[name] = foreignKey;
-								} else if (constraint.constraintType.toString().trim() == "UNIQUE") {
+								} else if (constraintType == "UNIQUE") {
 									schema.uniqueKeys[name] = [];
 
 									for (let item of list) {
 										schema.uniqueKeys[name].push(getFieldName(item.columnName));
 									}
-								} else if (constraint.constraintType.toString().trim() == "PRIMARY KEY") {
+								} else if (constraintType == "PRIMARY KEY") {
 									for (let item of list) {
 										const fieldName = getFieldName(item.columnName);
 										schema.primaryKeys.push(fieldName);
@@ -692,7 +693,7 @@ class DbClientPostgres {
 								for (const fieldName of foreignKey.fields) {
 									const field = schema.properties[fieldName];
 
-									if (field != undefined && field.$ref == undefined) {
+									if (field != null && field.$ref == null) {
 										candidates.push(fieldName);
 									}
 								}
@@ -732,12 +733,27 @@ class DbClientPostgres {
 		}
 
 		const processColumns = () => {
-			return this.client.query(this.client.sqlInfoTables).then(result => {
+			this.sqlTypes  = ["boolean","character varying","character","integer","jsonb" , "jsonb array", "numeric", "timestamp without time zone", "timestamp with time zone", "time without time zone", "bigint" , "smallint", "text"  , "date"          , "double precision", "bytea"];
+			this.rufsTypes = ["boolean","string"           ,"string"   ,"integer","object", "array", "number" , "date-time"                  , "date-time"               , "date-time"             , "integer", "integer" , "string", "date-time"     , "number"          , "string"];	
+			const sqlInfoTables = 
+				"select c.*,left(pgd.description,100) as description " +
+				"from pg_catalog.pg_statio_all_tables as st " +
+				"inner join pg_catalog.pg_description pgd on (pgd.objoid=st.relid) " +
+				"right outer join information_schema.columns c on (pgd.objsubid=c.ordinal_position and  c.table_schema=st.schemaname and c.table_name=st.relname) " +
+				"where table_schema = 'public' order by c.table_name,c.ordinal_position";
+			return this.client.query(sqlInfoTables).then(result => {
 				const schemas = {};
 
 				for (let rec of result.rows) {
-					let typeIndex = this.sqlTypes.indexOf(rec.dataType.trim().toLowerCase());
-
+					let sqlType = rec.dataType.trim().toLowerCase()
+					const sqlSubType = rec.udtName.trim().toLowerCase()
+		
+					if (sqlType == "array" && sqlSubType == "_jsonb") {
+						sqlType = "jsonb array"
+					}
+		
+					let typeIndex = this.sqlTypes.indexOf(sqlType);
+		
 					if (typeIndex >= 0) {
 						const tableName = CaseConvert.underscoreToCamel(rec.tableName.trim().toLowerCase(), false);
 						let schema;
@@ -798,16 +814,181 @@ class DbClientPostgres {
 		};
 
 		return processColumns().
-		then(schemas => processConstraints(schemas)).
+		then(schemas => {
+			return processConstraints(schemas)
+		}).
 		then(schemas => {
 			if (options == null) options = {};
 			options.schemas = schemas;
 			if (openapi == null) openapi = {};
 			this.openapi = openapi;
-			return OpenApi.fillOpenApi(openapi, options);
+			OpenApi.fillOpenApi(openapi, options);
+			return
 		});
 	}
 
+	createTable(name, schema) {
+		const genSqlColumnDescription = (fieldName, field) => {
+			if (field.type == undefined) {
+				if (field.identityGeneration != undefined) {
+					field.type = "integer"
+				} else {
+					field.type = "string"
+				}
+			}
+	
+			let pos = this.rufsTypes.indexOf(field.type);
+			if (pos < 0) {
+				throw new Error(`DbClientPostgres.genSqlColumnDescription() : field ${fieldName} : unknow type : ${field.type}`)
+			}
+			let sqlType = this.sqlTypes[pos];
+			if (field.type == "string" && field.maxLength < 32) {
+				sqlType = "character"
+			}
+	
+			if (field.maxLength == undefined) {
+				if (field.type == "string") {
+					field.maxLength = 255
+				}
+				if (field.type == "number") {
+					field.maxLength = 9
+				}
+			}
+	
+			if (field.type == "number" && field.scale == undefined) {
+				field.scale = 3
+			}
+	
+			let sqlLengthScale = "";
+	
+			if (field.maxLength != undefined && field.scale != undefined) {
+				sqlLengthScale = `(${field.maxLength},{field.scale})`
+			} else if (field.maxLength != undefined) {
+				sqlLengthScale = `(${field.maxLength})`
+			}
+	
+			let sqlDefault = "";
+
+			if (field.identityGeneration != undefined) {
+				//sqlDefault = `GENERATED ${field.identityGeneration} AS IDENTITY`
+				sqlType = `SERIAL`
+			}
+	
+			if (field.default != undefined) {
+				if (field.type == "string") {
+					sqlDefault = ` DEFAULT '${field.default}'`
+				} else {
+					sqlDefault = " DEFAULT " + field.default
+				}
+			}
+	
+			let sqlNotNull = "";
+			if (field.nullable != true) {
+				sqlNotNull = "NOT NULL"
+			}
+			return `${CaseConvert.camelToUnderscore(fieldName)} ${sqlType}${sqlLengthScale} ${sqlDefault} ${sqlNotNull}`;
+		}
+		// TODO : refatorar função genSqlForeignKey(fieldName, field) para genSqlForeignKey(tableName)
+		const genSqlForeignKey = (fieldName, field) => {
+			const ret = [];
+			const $ref = OpenApi.getSchemaNameFromRef(field.$ref);
+			const tableOut = CaseConvert.camelToUnderscore($ref);
+			const str = `FOREIGN KEY(${CaseConvert.camelToUnderscore(fieldName)}) REFERENCES ${tableOut}`;
+			ret.push(str);
+			return ret.join(",");
+		}
+	
+		let tableBody = "";
+		for (let [fieldName, field] of Object.entries(schema.properties)) {
+			tableBody = tableBody + genSqlColumnDescription(fieldName, field) + ", "
+		}
+		// add foreign keys
+		for (let [fieldName, field] of Object.entries(schema.properties)) {
+			if (field.$ref != undefined) {
+				tableBody = tableBody + genSqlForeignKey(fieldName, field) + ", "
+			}
+		}
+		// add unique keys
+		let mapUniqueKey = new Map();
+
+		for (let [fieldName, field] of Object.entries(schema.properties)) {
+			if (field.unique != undefined) {
+				if (mapUniqueKey.has(field.unique) == false) {
+					mapUniqueKey.set(field.unique, [])
+				}
+				mapUniqueKey.get(field.unique).push(fieldName);
+			}
+		}
+
+		for (let [uniqueKey, listField] of Object.entries(mapUniqueKey)) {
+			tableBody = tableBody + `UNIQUE(`;
+			for (fieldName of listField) {
+				tableBody = tableBody + `${CaseConvert.camelToUnderscore(fieldName)}, `
+			}
+			tableBody = tableBody.substring(0, tableBody.length-2) + `)`;
+		}
+		// add primary key
+		tableBody = tableBody + `PRIMARY KEY(`;
+		for (let fieldName of schema.primaryKeys) {
+			tableBody = tableBody + `${CaseConvert.camelToUnderscore(fieldName)}, `
+		}
+		tableBody = tableBody.substring(0, tableBody.length-2) + `)`;
+		let tableName = CaseConvert.camelToUnderscore(name);
+		const sql = `CREATE TABLE ${tableName} (${tableBody})`;
+		console.log(`entityManager.createTable() : table ${name}, sql : \n${sql}\n`);
+		return this.client.query(sql).then(res => {
+			this.updateOpenApi(this.openapi, {requestBodyContentType: this.dbConfig.requestBodyContentType}).
+			then(() =>
+				res
+			)
+		});
+	}
+/*
+	alterTable(name, newFields, oldFields) {
+		if (newFields == undefined) throw new Error(`entityManager.alterTable(${name}, ${newFields}) : newFields : Invalid Argument Exception`);
+		if (typeof(newFields) == "string") newFields = JSON.parse(newFields);
+		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
+		
+		const genSql = () => {
+			let sql = null;
+			let tableBody = "";
+			// fields to remove
+			for (let fieldName in oldFields) if (newFields[fieldName] ==  undefined) tableBody = tableBody + `DROP COLUMN ${CaseConvert.camelToUnderscore(fieldName)}, `;
+			// fields to add
+			for (let [fieldName, field] of Object.entries(newFields)) if (oldFields[fieldName] ==  undefined) tableBody = tableBody + "ADD COLUMN " + this.genSqlColumnDescription(fieldName, field) + ", ";
+			// add foreign keys for new fields or existent fields without foreign keys 
+			for (let [fieldName, field] of Object.entries(newFields)) if ((field.$ref != undefined) && (oldFields[fieldName] ==  undefined || oldFields[fieldName].$ref ==  undefined)) tableBody = tableBody + "ADD " + this.genSqlForeignKey(fieldName, field) + ", ";
+			//
+			if (tableBody.length > 0) {
+				tableBody = tableBody.substring(0, tableBody.length-2);
+				let tableName = CaseConvert.camelToUnderscore(name);
+				sql = `ALTER TABLE ${tableName} ${tableBody}`;
+			}
+
+			console.log(`.alterTable() : table ${name}, sql : \n${sql}\n`);
+			return sql;
+		};
+		
+		return this.updateOpenApi(this.openapi).
+		then(() => genSql()).
+		then(sql => {
+			if (sql != null) {
+				return this.client.query(sql).catch(err => {
+					console.error(`entityManager.alterTable(${name}) : error :\n${err.message}\nsql:\n${sql}`);
+					throw err;
+				});
+			}
+		});
+	}
+	*/
+/*
+	dropTable(name) {
+		let tableName = CaseConvert.camelToUnderscore(name);
+		const sql = `DROP TABLE ${tableName}`;
+		console.log(`.dropTable() : table ${name}, sql : \n${sql}\n`);
+		return this.client.query(sql);
+	}
+*/
 }
 
 export {DbClientPostgres}

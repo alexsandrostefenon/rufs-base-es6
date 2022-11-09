@@ -211,7 +211,7 @@ class OpenApi {
 
 				for (let subFieldName in fieldOriginal) {
 					if (exceptions.indexOf(subFieldName) < 0 && fieldOriginal[subFieldName] != jsonBuilderValue[subFieldName]) {
-						console.warn(`rufsServiceDbSync.generateJsonSchema() : table [${schemaName}], field [${fieldName}], property [${subFieldName}] conflict previous declared [${fieldOriginal[subFieldName]}] new [${jsonBuilderValue[subFieldName]}]\nold:\n`, fieldOriginal, "\nnew:\n", jsonBuilderValue);
+						console.warn(`generateJsonSchema() : table [${schemaName}], field [${fieldName}], property [${subFieldName}] conflict previous declared [${fieldOriginal[subFieldName]}] new [${jsonBuilderValue[subFieldName]}]\nold:\n`, fieldOriginal, "\nnew:\n", jsonBuilderValue);
 					}
 				}
 				// copia do original os campos PARCIALMENTE não SQL
@@ -327,7 +327,7 @@ class OpenApi {
 				if (field.maxLength) property.maxLength = field.maxLength;
 				if (field.pattern) property.pattern = field.pattern;
 				if (field.format) property.format = field.format;
-				if (field.$ref) property["x-$ref"] = field.$ref;
+				if (field.$ref) property.$ref = field.$ref;
 				if (field.title) property["x-title"] = field.title;
 
 				if (onlyClientUsage != true) {
@@ -431,7 +431,7 @@ class OpenApi {
 			}
 
 			if (schema.required == undefined) schema.required = [];
-			const skypes = ["x-$ref", "x-title", "x-hiden", "x-internalName", "x-enumLabels", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
+			const skypes = ["x-title", "x-hiden", "x-internalName", "x-enumLabels", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
 			if (schema.properties == null) schema.properties = {};
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
@@ -677,7 +677,7 @@ class OpenApi {
 			} else {
 				if (value === null && field.nullable == true) {
 					ret[fieldName] = null;
-				} else if (value != undefined) {
+				} else {
 					ret[fieldName] = this.copyValue(field, value);
 				}
 			}
@@ -757,13 +757,34 @@ class OpenApi {
 		return list;
 	}
 */
-	static objToSchemaAdd(obj, schema, stringMayBeNumber) {
+	static objToSchemaAdd(obj, schema, stringMayBeNumber, mapNameExternalToInternal) {
 		if (schema.properties == undefined) schema.properties = {};
 		schema.count = schema.count == undefined ? 1 : schema.count + 1;
 
 		for (let fieldName in obj) {
 			let value = obj[fieldName];
-			if (typeof value == "string") value = value.trim();
+			if (typeof value == "string") value = value.trimEnd();
+			let internalName = null;
+
+			for (const [externalName, listInternalName] of Object.entries(mapNameExternalToInternal)) {
+				if (externalName.toLowerCase() == fieldName.toLowerCase()) {
+					fieldName = externalName
+					break
+				}
+
+				for (const name of listInternalName) {
+					if (name.toLowerCase() == fieldName.toLowerCase()) {
+						fieldName = externalName
+						internalName = name
+						break
+					}
+				}
+
+				if (internalName != null) {
+					break
+				}
+			}
+
 			let property = schema.properties[fieldName];
 
 			if (property == undefined) {
@@ -776,6 +797,7 @@ class OpenApi {
 				property.maxLength = 0;
 				property.default = value;
 				property.count = 0;
+				property.internalName = internalName
 
 				if (fieldName.startsWith("compet")) {
 					property.pattern = "^20\\d\\d[01]\\d$";
@@ -838,11 +860,11 @@ class OpenApi {
 			} else if (Array.isArray(value) == true) {
 				property.type = "array";
 				if (property.items == undefined) property.items = {type:"object", properties:{}};
-				for (const item of value) this.objToSchemaAdd(item, property.items, stringMayBeNumber);
+				for (const item of value) this.objToSchemaAdd(item, property.items, stringMayBeNumber, mapNameExternalToInternal);
 			} else {
 				property.type = "object";
 				if (property.properties == undefined) property.properties = {};
-				this.objToSchemaAdd(value, property, stringMayBeNumber);
+				this.objToSchemaAdd(value, property, stringMayBeNumber, mapNameExternalToInternal);
 			}
 		}
 	}
@@ -953,37 +975,38 @@ class OpenApi {
 
 	static genSchemaFromExamples(list, options) {
 		const schema = {type: "object", properties: {}};
-		for (let obj of list) this.objToSchemaAdd(obj, schema);
+		for (let obj of list) this.objToSchemaAdd(obj, schema, false, {});
 		this.objToSchemaFinalize(schema, options);
 		return schema;
 	}
 //{"methods": ["get", "post"], "schemas": responseSchemas, parameterSchemas, requestSchemas}
 	static fillOpenApi(openapi, options) {
 		const forceGeneratePath = options.requestSchemas == null && options.parameterSchemas == null;
-		if (openapi.paths == undefined) openapi.paths = {};
-		if (openapi.components == undefined) openapi.components = {};
-		if (openapi.components.schemas == undefined) openapi.components.schemas = {};
-		if (openapi.components.responses == undefined) openapi.components.responses = {};
-		if (openapi.components.parameters == undefined) openapi.components.parameters = {};
-		if (openapi.components.requestBodies == undefined) openapi.components.requestBodies = {};
-		if (openapi.tags == undefined) openapi.tags = [];
+		if (openapi.paths == null) openapi.paths = {};
+		if (openapi.components == null) openapi.components = {};
+		if (openapi.components.schemas == null) openapi.components.schemas = {};
+		if (openapi.components.responses == null) openapi.components.responses = {};
+		if (openapi.components.parameters == null) openapi.components.parameters = {};
+		if (openapi.components.requestBodies == null) openapi.components.requestBodies = {};
+		if (openapi.tags == null) openapi.tags = [];
 		//
-		if (options == undefined) options = {};
-		if (options.requestBodyContentType == undefined) options.requestBodyContentType = "application/json"
-		if (options.methods == undefined) options.methods = OpenApi.methods
-		if (options.parameterSchemas == undefined) options.parameterSchemas = {};
-		if (options.requestSchemas == undefined) options.requestSchemas = {};
-		if (options.responseSchemas == undefined) options.responseSchemas = {};
-		if (options.security == undefined) options.security = {};
-		if (options.disableResponseList == undefined) options.disableResponseList = {};
+		if (options == null) options = {};
+		if (options.requestBodyContentType == null) options.requestBodyContentType = "application/json"
+		if (options.responseContentType == null) options.responseContentType =  "application/json"
+		if (options.methods == null) options.methods = OpenApi.methods
+		if (options.parameterSchemas == null) options.parameterSchemas = {};
+		if (options.requestSchemas == null) options.requestSchemas = {};
+		if (options.responseSchemas == null) options.responseSchemas = {};
+		if (options.security == null) options.security = {};
+		if (options.disableResponseList == null) options.disableResponseList = {};
 
-		if (options.requestSchemas["login"] == undefined) {
+		if (options.requestSchemas["login"] == null) {
 			const requestSchema = {"type": "object", "properties": {"user": {type: "string"}, "password": {type: "string"}}, "required": ["user", "password"]};
 			const responseSchema = {"type": "object", "properties": {"tokenPayload": {type: "string"}}, "required": ["tokenPayload"]};
 			this.fillOpenApi(openapi, {methods: ["post"], requestSchemas: {"login": requestSchema}, schemas: {"login": responseSchema}, security: [{"basic": []}]});
 		}
 
-		if (options.schemas == undefined) {
+		if (options.schemas == null) {
 			options.schemas = openapi.components.schemas;
 		} else {
 			for (let [schemaName, schema] of Object.entries(options.schemas)) {
@@ -1001,8 +1024,8 @@ class OpenApi {
 
 			if (options.forceGenerateSchemas != true && forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
 			const schema = options.schemas[schemaName];
-			if (schema.primaryKeys == undefined) schema.primaryKeys = [];
-			if (openapi.tags.find(item => item.name == schemaName) == undefined) openapi.tags.push({"name": schemaName});
+			if (schema.primaryKeys == null) schema.primaryKeys = [];
+			if (openapi.tags.find(item => item.name == schemaName) == null) openapi.tags.push({"name": schemaName});
 			const referenceToSchema = {"$ref": `#/components/schemas/${schemaName}`};
 //			if (forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
 			// fill components/requestBody with schemas
@@ -1115,7 +1138,33 @@ class OpenApi {
 		let schema;
 
 		for (const [mediaTypeName, mediaTypeObject] of Object.entries(requestBodyObject.content)) {
-			if (mediaTypeObject.schema.properties != undefined) {
+			if (mediaTypeObject.schema.$ref != null) {
+				schema = OpenApi.getSchemaFromRef(openapi, mediaTypeObject.schema.$ref)
+				break;
+			} else if (mediaTypeObject.schema.properties != undefined) {
+				schema = mediaTypeObject.schema;
+				break;
+			}
+		}
+
+		return schema;
+	}
+
+	static getSchemaFromResponses(openapi, schemaName) {
+		schemaName = this.getSchemaNameFromRef(schemaName);
+		const responseObject = openapi.components.responses[schemaName];
+
+		if (responseObject == null) {
+			return null
+		}
+
+		let schema;
+
+		for (const [_, mediaTypeObject] of Object.entries(responseObject.content)) {
+			if (mediaTypeObject.schema.$ref != null) {
+				schema = OpenApi.getSchemaFromRef(openapi, mediaTypeObject.schema.$ref)
+				break;
+			} else if (mediaTypeObject.schema.properties != undefined) {
 				schema = mediaTypeObject.schema;
 				break;
 			}
@@ -1136,6 +1185,8 @@ class OpenApi {
 			}
 		} else if (ref.startsWith("#/components/schemas/")) {
 			schema = openapi.components.schemas[schemaName]
+		} else if (ref.startsWith("#/components/requestBodies/")) {
+			schema = OpenApi.getSchemaFromRequestBodies(openapi, schemaName)
 		} else if (ref.startsWith("#/components/responses/")) {
 			const response = openapi.components.responses[schemaName]
 
@@ -1148,7 +1199,7 @@ class OpenApi {
 		}
 	
 		if (schema == null) {
-			throw new Error(`[OpenApi.getSchemaFromParameters] don't find schema from ${ref}`)
+			throw new Error(`[OpenApi.getSchemaFromRef] don't find schema from ${ref}`)
 		} else if (schema.name == null || schema.name == "") {
 			schema.name = schemaName
 		}
@@ -1170,7 +1221,7 @@ class OpenApi {
 					const pathSegment = pathSegments[idx]
 
 					if (pathSegment.startsWith("{") && pathSegment.endsWith("}")) {
-						const name = pathSegment.substring(1, pathSegment.length-1)
+						const name = CaseConvert.underscoreToCamel(pathSegment.substring(1, pathSegment.length-1))
 						params[name] = uriSegments[idx]
 					} else if (pathSegment != uriSegments[idx]) {
 						match = false
@@ -1188,17 +1239,51 @@ class OpenApi {
 		return path
 	}
 
-	static getSchemaFromParameters(openapi, schemaName) {
-		schemaName = this.getSchemaNameFromRef(schemaName);
-		const parameterObject = openapi.components.parameters[schemaName];
+	/**
+	 * 
+	 * @param {string} path
+	 * @param {string} method
+	 * @returns {object}
+	 */
+	static getSchemaFromParameters(openapi, path, method) {
+		for (let [pattern, pathItemObject] of Object.entries(openapi.paths)) {
+			if (pattern == path) {
+				const operationObject = pathItemObject[method]
 
-		if (parameterObject == undefined)
-			return undefined;
-
-		return parameterObject.schema;
+				if (operationObject != null) {
+					for (let parameterObject of operationObject.parameters) {
+						if (parameterObject.$ref != null) {
+							return OpenApi.getSchemaFromRef(openapi, parameterObject.$ref)
+						} else if (parameterObject.schema != null) {
+							if (parameterObject.schema.$ref != null) {
+								return OpenApi.getSchemaFromRef(openapi, parameterObject.schema.$ref)
+							} else {
+								return parameterObject.schema
+							}
+						}
+					}
+				}
+			}
+		}
+	
+		throw(`[OpenApi.getSchemaFromParameters] don't find schema parameter from ${path}`)
 	}
 
-	static getResponseSchema(openapi, path, method) {
+	static getSchema(openapi, path, method, type) {
+		const getSchemaFromContent = content => {
+			let schema = null
+
+			for (let [_, mediaTypeObject] of Object.entries(content)) {
+				if (mediaTypeObject.schema["$ref"] != null) {
+					schema = OpenApi.getSchemaFromRef(openapi, mediaTypeObject.schema["$ref"])
+				} else {
+					schema = mediaTypeObject.schema
+				}
+			}
+
+			return schema
+		}
+
 		let schema = null
 		const pathItemObject = openapi.paths[path]
 
@@ -1206,22 +1291,29 @@ class OpenApi {
 			const operationObject = pathItemObject[method]
 
 			if (operationObject != null) {
-				const responseObject = operationObject.responses["200"]
+				if (type == "parameters") {
+				} else if (type == "requestBody") {
+					if (operationObject.requestBody.$ref != null) {
+						schema = OpenApi.getSchemaFromRef(openapi, operationObject.requestBody.$ref)
+					} else if (operationObject.requestBody.content != null) {
+						schema = getSchemaFromContent(operationObject.requestBody.content)
+					}
+				} else if (type == "responseObject") {
+					const responseObject = operationObject.responses["200"]
 
-				if (responseObject != null) {
-					for (let [name, mediaTypeObject] of Object.entries(responseObject.content)) {
-						if (mediaTypeObject.schema["$ref"] != "") {
-							schema = OpenApi.getSchemaFromRef(openapi, mediaTypeObject.schema["$ref"])
-						} else {
-							schema = mediaTypeObject.schema
+					if (responseObject != null) {
+						if (responseObject["$ref"] != null) {
+							return getSchemaFromResponses(openapi, responseObject["$ref"])
 						}
+
+						return getSchemaFromContent(responseObject.content)
 					}
 				}
 			} else {
-				throw new Error(`[OpenApi.getResponseSchema] missing OperationObject ${path}.${method}`)
+				throw new Error(`[OpenApi.getSchema] missing OperationObject ${path}.${method}`)
 			}
 		} else {
-			throw new Error(`[OpenApi.getResponseSchema] missing PathItemObject ${path}`)
+			throw new Error(`[OpenApi.getSchema] missing PathItemObject ${path}`)
 		}
 	
 		return schema
@@ -1240,8 +1332,10 @@ class OpenApi {
 					} else {
 						ret = OpenApi.getSchemaNameFromRef(mediaTypeObject.schema.$ref)
 					}
-				} else {
+				} else if (mediaTypeObject.schema.name != null) {
 					ret = OpenApi.getSchemaNameFromRef(mediaTypeObject.schema.name)
+				} else if (mediaTypeObject.schema.type == "array" && mediaTypeObject.schema.items != null && mediaTypeObject.schema.items.$ref != null) {
+					ret = OpenApi.getSchemaNameFromRef(mediaTypeObject.schema.items.$ref)
 				}
 			}
 
@@ -1283,9 +1377,9 @@ class OpenApi {
 		return ret
 	}
 
-	static getOperationObject(openapi, resource, method) {
+	static getOperationObject(openapi, path, method) {
 		let operationObject = undefined;
-		const pathItemObject = openapi.paths["/" + resource];
+		const pathItemObject = openapi.paths[path];
 
 		if (pathItemObject != undefined) {
 			operationObject = pathItemObject[method.toLowerCase()];

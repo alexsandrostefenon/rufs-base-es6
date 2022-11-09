@@ -17,7 +17,7 @@ import {Response} from "./server-utils.js";
 const fsPromises = fs.promises;
 const WebSocketServer = websocket.server;
 
-class MicroServiceServer {
+ class MicroServiceServer {
 
 	static getArg(name, defaultValue) {
 		let value = defaultValue;

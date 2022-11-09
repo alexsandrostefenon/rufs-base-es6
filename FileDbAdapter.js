@@ -18,7 +18,7 @@ class FileDbAdapter {
 			return this.store(tableName, defaultRows) 
 		}).
 		then(list => {
-			this.fileTables.set(tableName, true);
+			this.fileTables.set(tableName, list);
 			return list;
 		});
 	}
@@ -32,13 +32,13 @@ class FileDbAdapter {
 			try {
 				list = JSON.parse(data)
 			} catch (error) {
-				return []
+				list = []
 			}
 		} catch (error) {
 			list = this.storeSync(tableName, defaultRows) 
 		}
 
-		this.fileTables.set(tableName, true)
+		this.fileTables.set(tableName, list)
 		return list;
 	}
 

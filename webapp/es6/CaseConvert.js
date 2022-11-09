@@ -1,6 +1,7 @@
 class CaseConvert {
 
     static camelToUnderscore(str, checkLastIsUpper) {
+		str = str.trim();
 		var ret = "";
 		var lastIsUpper = true;
 
@@ -31,6 +32,7 @@ class CaseConvert {
     }
 
     static underscoreToCamel(str, isFirstUpper) {
+		str = str.trim();
     	const regExp = /[a-zA-Z]/;
 		var ret = "";
 		var nextIsUpper = false;
@@ -60,9 +62,14 @@ class CaseConvert {
     }
 
     static camelUpToCamelLower(str) {
+		if (str == null) {
+			return null;
+		}
+
+		str = str.trim();
 		var ret = str;
 
-		if (str != undefined && str != null && str.length > 0) {
+		if (str.length > 0) {
 			ret = str.charAt(0).toLocaleLowerCase() + str.substring(1);
 		}
 
@@ -70,10 +77,11 @@ class CaseConvert {
     }
 
 	static caseAnyToLabel(str) {
-		if (str == undefined) {
+		if (str == null) {
 			return "";
 		}
 
+		str = str.trim();
 		var ret = "";
 		var nextIsUpper = true;
 

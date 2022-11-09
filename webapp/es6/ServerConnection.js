@@ -347,7 +347,7 @@ class ServerConnection extends DataStoreManager {
 			this.routes = loginResponse.routes;
 			this.path = loginResponse.path;
 			this.userMenu = loginResponse.menu;
-    		this.httpRest.setToken(loginResponse.JwtHeader);
+    		this.httpRest.setToken(loginResponse.jwtHeader);
     		const schemas = [];
             // depois carrega os serviços autorizados
 			for (let role of loginResponse.roles) {

@@ -20,12 +20,12 @@ class RufsServiceMicroService extends RufsMicroService {
 
 			if (schemaOld.properties == undefined) {
 				if (schema.properties != undefined)
-					promise = this.rufsServiceDbSync.createTable(schema.name, schema).then(resSqlCreate => schema);
+					promise = this.entityManager.createTable(schema.name, schema).then(resSqlCreate => schema);
 				else
 					promise = Promise.resolve(schema);
 			} else {
 				if (schema.properties == undefined) schema.properties = "{}";
-				promise =  this.rufsServiceDbSync.alterTable(schema.name, schema.properties, schemaOld.properties).then(resSqlAlter => schema);
+				promise =  this.entityManager.alterTable(schema.name, schema.properties, schemaOld.properties).then(resSqlAlter => schema);
 			}
 			
 			promise.then(schemaChanged => {
@@ -39,11 +39,12 @@ class RufsServiceMicroService extends RufsMicroService {
 		});
 	}
 */
+/*
 	remove(req, res, next, resource, action) {
 		return this.entityManager.findOne("rufsService", {name: req.query.name}).
 		then(schemaOld => {
 			console.log(`.remove : [${schemaOld.name}] : old properties`);
-			return this.rufsServiceDbSync.dropTable(schemaOld.name).then(resSqlDrop => schemaOld);
+			return this.entityManager.dropTable(schemaOld.name).then(resSqlDrop => schemaOld);
 		}).
 		then(schemaChanged => {
 			return RequestFilter.processRequest(req, res, next, this.entityManager, this, resource, action);
@@ -53,7 +54,7 @@ class RufsServiceMicroService extends RufsMicroService {
 			return Response.internalServerError(err.message);
 		});
 	}
-
+*/
 	processLogin(req) {
 		const rf = new RequestFilter(req, this)
 		const isAuthorized = rf.checkAuthorization(req)

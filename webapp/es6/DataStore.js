@@ -370,7 +370,7 @@ class DataStoreManager {
 		return OpenApi.getDependents(this.openapi, schemaName, onlyInDocument, this.services);
 	}
 
-	getForeignKeyEntries(serviceName, $ref) {
+	getPropertiesWithRef(serviceName, $ref) {
 		const service = this.getSchema(serviceName);
     	return OpenApi.getPropertiesWithRef(this.openapi, serviceName, $ref, this.services);
 	}
