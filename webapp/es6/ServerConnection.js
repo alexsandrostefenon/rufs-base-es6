@@ -367,7 +367,11 @@ class ServerConnection extends DataStoreManager {
 				}
 
 				if (service.properties.rufsGroupOwner != undefined && this.rufsGroupOwner != 1) service.properties.rufsGroupOwner.hiden = true;
-				if (service.properties.rufsGroupOwner != undefined && service.properties.rufsGroupOwner.default == undefined) service.properties.rufsGroupOwner.default = this.rufsGroupOwner;
+				
+				if (service.properties.rufsGroupOwner != undefined && service.properties.rufsGroupOwner.default == undefined) {
+					service.properties.rufsGroupOwner.default = this.rufsGroupOwner;
+				}
+				
 				schemas.push(service);
             }
 

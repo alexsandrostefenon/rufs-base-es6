@@ -109,8 +109,10 @@ const WebSocketServer = websocket.server;
 			console.log(`[MicroServiceServer.constructor] service ${this.config.appName}, port ${this.config.port} : serving static files of ${this.config.webapp}`);
 			const paths = this.config.webapp.split(",");
 
-			for (let path of paths)
-				this.expressServer.use("/", express.static(path));
+			for (let path of paths) {
+				console.log(`Add listening static files at "${path}"`);
+				this.expressServer.use("/", express.static(path, {setHeaders: function(res, path) {res.set("Cross-Origin-Opener-Policy", "same-origin");res.set("Cross-Origin-Embedder-Policy", "require-corp");}}));
+			}
 
 			console.log(`[${this.constructor.name}.constructor()] service ${this.config.appName}, port ${this.config.port} : restServer at : ${this.config.apiPath}`);
 			this.expressServer.use("/" + this.config.apiPath, this.restServer);

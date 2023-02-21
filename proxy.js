@@ -27,6 +27,7 @@ class RufsProxy {
 					}
 				}
 
+				console.log(`[RufsProxy.constructor.addResolver] : `, ret);
 				return ret;
 			});
 		}
@@ -63,7 +64,9 @@ class RufsProxy {
 					const instance = new microServiceClass(params);
 					await instance.listen();
 					console.log(`...loaded instance of ${name}.`);
-					config.routes.push({sourcePath: instance.config.appName, target: `http://localhost:${instance.config.port}`});
+					const route = {sourcePath: instance.config.appName, target: `http://localhost:${instance.config.port}`};
+					config.routes.push(route);
+					console.log(`[RufsProxy.start] added route of ${name} :`, route);
 				}
 			}
 		}
@@ -74,7 +77,10 @@ class RufsProxy {
 		}
 
 		for (let route of config.routes) {
-			this.proxy.register(config.host + "/" + route.sourcePath, route.target+"/");
+			const src = config.host + "/" + route.sourcePath;
+			const dest = route.target + "/";
+			this.proxy.register(src, dest);
+			console.log(`[RufsProxy.start] registred route of ${src} to ${dest}`);
 		}
 	}
 

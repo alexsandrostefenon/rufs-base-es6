@@ -431,7 +431,7 @@ class OpenApi {
 			}
 
 			if (schema.required == undefined) schema.required = [];
-			const skypes = ["x-title", "x-hiden", "x-internalName", "x-enumLabels", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
+			const skypes = ["x-essential", "x-$ref", "x-title", "x-hiden", "x-internalName", "x-enumLabels", "x-identityGeneration", "x-updatable", "x-scale", "x-precision"];
 			if (schema.properties == null) schema.properties = {};
 
 			for (let [fieldName, field] of Object.entries(schema.properties)) {
@@ -673,7 +673,11 @@ class OpenApi {
 					}
 				}
 			} else if (field.type == "object") {
-				ret[fieldName] = this.copyFields(field, value, ignoreUndefined, ignoreHiden);
+				if (value != null) {
+					ret[fieldName] = this.copyFields(field, value, ignoreUndefined, ignoreHiden);
+				} else if (field.nullable != false) {
+					ret[fieldName] = null;
+				}
 			} else {
 				if (value === null && field.nullable == true) {
 					ret[fieldName] = null;

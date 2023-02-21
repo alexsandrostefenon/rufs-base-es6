@@ -283,6 +283,10 @@ class DataStoreManager {
 	}
 	// ignoreCache is used in websocket notifications
 	get(schemaName, primaryKey, ignoreCache) {
+		if (ignoreCache == true) {
+        	return Promise.resolve(null);
+		}
+
 		const dataStore = this.getSchema(schemaName);
         const pos = dataStore.findPos(primaryKey);
         if (pos >= 0) 

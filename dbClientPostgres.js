@@ -272,19 +272,25 @@ class SqlAdapterPostgres {
 	constructor(config) {
 		config.max = 10; // max number of clients in the pool
 		config.idleTimeoutMillis = 86400; // how long a client is allowed to remain idle before being closed
+		config.connectionTimeoutMillis = 1000;
 		console.log(`[${this.constructor.name}.constructor(${JSON.stringify(config)})]`);
 		this.client = new pg.Client(config);
 		this.enableParams = true;
 	}
 
 	connect() {
-		return this.client.connect().then(res => {
+		return this.client.connect().
+		then(res => {
 			this.client.on('error', e => {
 				console.error(`[${this.constructor.name}.connect()] :`, e);
 				// TODO : verificar se deve reconectar
 				// this.connect();
 			});
 			return res;
+		}).
+		catch(err => {
+			console.error(`[SqlAdapterPostgres.connect] err :`, err);
+			throw err;
 		});
 	}
 

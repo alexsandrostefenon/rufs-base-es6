@@ -236,7 +236,11 @@ class RufsMicroService extends MicroServiceServer {
 		then(() => this.loadFileTables()).
 		then(() => RequestFilter.updateRufsServices(this.entityManager, this.openapi)).
 		then(() => super.listen()).
-		then(() => console.log(`[${this.constructor.name}] ... ${this.config.appName} started.`));
+		then(() => console.log(`[${this.constructor.name}] ... ${this.config.appName} started.`)).
+		catch(err => {
+			console.error(`[RufsMicroService.listen()] err :`, err);
+			throw err;
+		});
 	}
 }
 
