@@ -307,7 +307,7 @@ class SqlAdapterPostgres {
 class DbClientPostgres {
 
 	constructor(dbConfig, options) {
-		this.limitQuery = 1000;
+		this.limitQuery = 10000;
 		this.limitQueryExceptions = [];
 		this.dbConfig = {};
 		this.options = options || {};

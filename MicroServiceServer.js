@@ -71,7 +71,7 @@ const WebSocketServer = websocket.server;
 		config.aliasMap = preferenceConfig.aliasMap;
 
 		config.appName = preferenceConfig.appName || MicroServiceServer.getArg("name", "");
-		config.port = preferenceConfig.port || MicroServiceServer.getArg("port", "9080");
+		config.port = preferenceConfig.port || MicroServiceServer.getArg("port", "8080");
 
 		config.apiPath = preferenceConfig.apiPath || MicroServiceServer.getArg("api_path", "rest");
 		config.requestBodyContentType = preferenceConfig.requestBodyContentType || MicroServiceServer.getArg("request_body_content_type", "application/json");
